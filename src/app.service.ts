@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common'
 
 @Injectable()
 export class AppService {
-  getHello(): string {
-    return 'Hello World!';
+  getHealthcheck(): string {
+    return `Anyone DNS Service version ${process.env.VERSION || 'unknown'}`
   }
 }
