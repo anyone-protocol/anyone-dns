@@ -54,10 +54,7 @@ describe('AppController', () => {
         expectedOutput += `${mapping.domain} ${mapping.hiddenServiceAddress}\n`
       }
       expectedOutput = expectedOutput.trim()
-      appController['unsService']['mappingsCache'] = mockDomainMappings.map(mapping => ({
-        name: mapping.domain,
-        hiddenServiceAddress: mapping.hiddenServiceAddress
-      }))
+      appController['unsService']['hostsListCache'] = expectedOutput
 
       const domains = await appController.getAnyoneDomains()
       expect(typeof domains === 'string').toBe(true)

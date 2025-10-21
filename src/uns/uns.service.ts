@@ -22,6 +22,7 @@ export class UnsService implements OnApplicationBootstrap {
   private readonly cacheTtlMs: number
   private domainsCache: string[] | null = null
   private mappingsCache: DomainResolutionResultDto[] | null = null
+  private hostsListCache: string = ''
 
   constructor(
     private readonly config: ConfigService<{
@@ -108,6 +109,7 @@ export class UnsService implements OnApplicationBootstrap {
       if (domainNames.length === 0) {
         this.logger.warn('No anyone domains found')
         this.mappingsCache = []
+        this.hostsListCache = ''
         return
       }
 
@@ -121,6 +123,10 @@ export class UnsService implements OnApplicationBootstrap {
 
       // Update mappings cache
       this.mappingsCache = results
+      this.hostsListCache = resultsWithHiddenServiceAddress
+        .map(mapping => `${mapping.name} ${mapping.hiddenServiceAddress}`)
+        .join('\n')
+        .trim()
 
       this.logger.log(
         `Successfully refreshed cache for [${results.length}] domains with ` +
@@ -246,5 +252,9 @@ export class UnsService implements OnApplicationBootstrap {
 
     this.logger.warn('No cached domain mappings available yet, returning empty array')
     return []
+  }
+
+  async getHostsList(): Promise<string> {
+    return this.hostsListCache
   }
 }

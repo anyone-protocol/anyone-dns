@@ -18,17 +18,11 @@ export class AppController {
   @Get('tld/anyone')
   async getAnyoneDomains() {
     try {
-      const anyoneDomainsMappings =
-        await this.unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-
-      let output = ''
-      for (const mapping of anyoneDomainsMappings) {
-        output += `${mapping.name} ${mapping.hiddenServiceAddress}\n`
-      }
-
-      return output.trim()
+      return await this.unsService.getHostsList()
     } catch (error) {
-      throw new Error(`Failed to fetch anyone domains: ${error.message}`)
+      throw new Error(
+        `Failed get hosts list: ${error.message}`
+      )
     }
   }
 }
