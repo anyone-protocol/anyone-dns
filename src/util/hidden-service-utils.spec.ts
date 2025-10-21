@@ -1,7 +1,7 @@
 import { hsUtils } from './hidden-service-utils'
 
 const validAnyoneAddress = '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone'
-const validAnonAddress2  = '25njqamcweflpvkl73j4szahhihoc4xt3ktcgjnpaingr5yhkenc2hqd.anon'
+const validAnonAddress   = '25njqamcweflpvkl73j4szahhihoc4xt3ktcgjnpaingr5yhkenc2hqd.anon'
 const invalidAddress     = '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6dzzz.anyone'
 
 describe('hsUtils', () => {
@@ -11,7 +11,7 @@ describe('hsUtils', () => {
     })
 
     it('should return true for valid .anon address', () => {
-      expect(hsUtils.isValidHiddenServiceAddress(validAnonAddress2)).toBe(true)
+      expect(hsUtils.isValidHiddenServiceAddress(validAnonAddress)).toBe(true)
     })
 
     it('should return false for empty string', () => {

@@ -33,20 +33,20 @@ describe('UnsService', () => {
       jest.restoreAllMocks()
     })
 
-    it('resolves anyone domain to onion address', async () => {
+    it('resolves anyone domain to hidden service address', async () => {
       const domain = 'test.anyone'
-      const expectedOnionAddress = 'abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone'
+      const expectedHiddenServiceAddress = '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone'
 
       // Mock the contract response
-      mockContract.getMany.mockResolvedValue([expectedOnionAddress])
+      mockContract.getMany.mockResolvedValue([expectedHiddenServiceAddress])
 
       const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
 
       expect(mockContract.getMany).toHaveBeenCalledTimes(1)
-      expect(result).toEqual(expectedOnionAddress)
+      expect(result).toEqual(expectedHiddenServiceAddress)
     })
 
-    it('resolves to null if domain has no onion record', async () => {
+    it('resolves to null if domain has no hidden service record', async () => {
       const domain = 'nonexistent.anyone'
 
       // Mock contract to respond with empty string
@@ -78,7 +78,7 @@ describe('UnsService', () => {
         null // Third domain has no record
       ]
 
-      jest.spyOn(unsService, 'resolveDomainToOnionAddress')
+      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
         .mockResolvedValueOnce(mockResults[0])
         .mockResolvedValueOnce(mockResults[1])
         .mockResolvedValueOnce(mockResults[2])
@@ -87,16 +87,16 @@ describe('UnsService', () => {
 
       expect(results).toHaveLength(3)
       expect(results[0]).toEqual({
-        domain: domains[0],
-        onionAddress: mockResults[0]
+        name: domains[0],
+        hiddenServiceAddress: mockResults[0]
       })
       expect(results[1]).toEqual({
-        domain: domains[1],
-        onionAddress: mockResults[1]
+        name: domains[1],
+        hiddenServiceAddress: mockResults[1]
       })
       expect(results[2]).toEqual({
-        domain: domains[2],
-        onionAddress: null
+        name: domains[2],
+        hiddenServiceAddress: null
       })
     })
 
@@ -111,7 +111,7 @@ describe('UnsService', () => {
       ]
 
       // Mock resolution results
-      jest.spyOn(unsService, 'resolveDomainToOnionAddress')
+      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
         .mockResolvedValueOnce(mockResults[0])
         .mockResolvedValueOnce(mockResults[1])
       // Mock setTimeout to verify delay is called
@@ -275,7 +275,7 @@ describe('UnsService', () => {
       jest.restoreAllMocks()
     })
 
-    it('fetches domains and resolves their onion addresses', async () => {
+    it('fetches domains and resolves their hidden service addresses', async () => {
       const mockDomains = [
         { name: 'test1.anyone' },
         { name: 'test2.anyone' }
@@ -288,59 +288,54 @@ describe('UnsService', () => {
 
       ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
 
-      // Mock the resolveDomainToOnionAddress method
+      // Mock the resolveDomainToHiddenServiceAddress method
       const mockResolveResults = [
         'test1.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
         'test2.anyone 987fed654cba32109876543210987654321098765432109876543210.anyone'
       ]
 
-      jest.spyOn(unsService, 'resolveDomainToOnionAddress')
+      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
         .mockResolvedValueOnce(mockResolveResults[0])
         .mockResolvedValueOnce(mockResolveResults[1])
 
-      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
+      const result =
+        await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
 
       expect(global.fetch).toHaveBeenCalledTimes(1)
       expect(result).toHaveLength(2)
       expect(result[0]).toEqual({
-        domain: mockDomains[0].name,
-        onionAddress: mockResolveResults[0]
+        name: mockDomains[0].name,
+        hiddenServiceAddress: mockResolveResults[0]
       })
       expect(result[1]).toEqual({
-        domain: mockDomains[1].name,
-        onionAddress: mockResolveResults[1]
+        name: mockDomains[1].name,
+        hiddenServiceAddress: mockResolveResults[1]
       })
     })
 
-    it('handles domains with no onion addresses', async () => {
+    it('handles domains with no hidden service addresses', async () => {
       const mockDomains = [
-        { name: 'notonion.anyone' },
-        { name: 'hastonion.anyone' }
+        { name: 'norecord.anyone', hiddenServiceAddress: null },
+        {
+          name: 'hasrecord.anyone',
+          hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone'
+        }
       ]
-
       const mockResponse = {
         ok: true,
         json: jest.fn().mockResolvedValue(mockDomains)
       }
-
       ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
+        .mockResolvedValueOnce(mockDomains[0].hiddenServiceAddress)
+        .mockResolvedValueOnce(mockDomains[1].hiddenServiceAddress)
 
-      // Mock one domain with onion address and one without
-      jest.spyOn(unsService, 'resolveDomainToOnionAddress')
-        .mockResolvedValueOnce(null) // No onion address
-        .mockResolvedValueOnce('anyone.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone')
-
-      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
+      const result =
+      await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
 
       expect(result).toHaveLength(2)
-      expect(result[0]).toEqual({
-        domain: 'notonion.anyone',
-        onionAddress: null
-      })
-      expect(result[1]).toEqual({
-        domain: 'hastonion.anyone',
-        onionAddress: 'anyone.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone'
-      })
+      expect(result[0]).toEqual(mockDomains[0])
+      expect(result[1]).toEqual(mockDomains[1])
     })
 
     it('returns empty array when no domains are found', async () => {
@@ -381,9 +376,9 @@ describe('UnsService', () => {
       // Mock tryResolveAll to verify it's called with correct parameters
       const mockTryResolveAll = jest.spyOn(unsService, 'tryResolveAll')
         .mockResolvedValue([
-          { domain: 'batch1.anyone', onionAddress: 'b1.anyone' },
-          { domain: 'batch2.anyone', onionAddress: 'b2.anyone' },
-          { domain: 'batch3.anyone', onionAddress: 'b3.anyone' }
+          { name: 'batch1.anyone', hiddenServiceAddress: 'b1.anyone' },
+          { name: 'batch2.anyone', hiddenServiceAddress: 'b2.anyone' },
+          { name: 'batch3.anyone', hiddenServiceAddress: 'b3.anyone' }
         ])
 
       const customBatchSize = 2
@@ -417,7 +412,7 @@ describe('UnsService', () => {
         'anyone.anyone cached2hash987654321fedcba987654321fedcba987654321111111.anyone'
       ]
 
-      jest.spyOn(unsService, 'resolveDomainToOnionAddress')
+      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
         .mockResolvedValueOnce(mockResolveResults[0])
         .mockResolvedValueOnce(mockResolveResults[1])
 
@@ -462,20 +457,20 @@ describe('UnsService', () => {
       // Second resolution result (after cache expires)
       const mockResult2 = 'anyone.anyone second987654321fedcba987654321fedcba987654321fedcba91233.anyone'
 
-      const mockResolve = jest.spyOn(unsService, 'resolveDomainToOnionAddress')
+      const mockResolve = jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
         .mockResolvedValueOnce(mockResult1)
         .mockResolvedValueOnce(mockResult2)
 
       // First call - should resolve and cache
       const result1 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(mockResolve).toHaveBeenCalledTimes(1)
-      expect(result1[0].onionAddress).toBe(mockResult1)
+      expect(result1[0].hiddenServiceAddress).toBe(mockResult1)
 
       // Advance time but not enough to expire cache (default TTL is 300000ms)
       mockTime += 100000 // Advance 100 seconds
       const result2 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(mockResolve).toHaveBeenCalledTimes(1) // Still only 1 call
-      expect(result2[0].onionAddress).toBe(mockResult1) // Same cached result
+      expect(result2[0].hiddenServiceAddress).toBe(mockResult1) // Same cached result
 
       // Advance time to expire cache
       mockTime += 250000 // Total advance: 350 seconds (> 300 second default TTL)
@@ -483,7 +478,7 @@ describe('UnsService', () => {
       // Third call - should resolve again with fresh data
       const result3 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(mockResolve).toHaveBeenCalledTimes(2) // New resolution call
-      expect(result3[0].onionAddress).toBe(mockResult2) // New resolved data
+      expect(result3[0].hiddenServiceAddress).toBe(mockResult2) // New resolved data
 
       // Restore original Date.now
       Date.now = originalDateNow
@@ -500,19 +495,19 @@ describe('UnsService', () => {
 
       // First successful call
       const mockResult = 'test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone'
-      jest.spyOn(unsService, 'resolveDomainToOnionAddress')
+      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
         .mockResolvedValueOnce(mockResult)
         .mockRejectedValueOnce(new Error('Resolution error'))
 
       const result1 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-      expect(result1[0].onionAddress).toBe('test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone')
+      expect(result1[0].hiddenServiceAddress).toBe('test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone')
 
       // Mock time advancement to expire cache
       jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 400000)
 
       // Second call with resolution error should return stale cache
       const result2 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-      expect(result2[0].onionAddress).toBe('test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone') // Stale cached data
+      expect(result2[0].hiddenServiceAddress).toBe('test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone') // Stale cached data
 
       jest.restoreAllMocks()
     })

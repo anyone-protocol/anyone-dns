@@ -23,10 +23,10 @@ export class AppController {
 
       let output = ''
       for (const mapping of anyoneDomainsMappings) {
-        output += `${mapping.domain} ${mapping.onionAddress}\n`
+        output += `${mapping.name} ${mapping.hiddenServiceAddress}\n`
       }
 
-      return output
+      return output.trim()
     } catch (error) {
       throw new Error(`Failed to fetch anyone domains: ${error.message}`)
     }

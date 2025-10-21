@@ -9,7 +9,7 @@ import {
   UNS_REGISTRY_PROXY_READER_ABI,
   UNS_REGISTRY_PROXY_READER_ADDRESS
 } from './schema/uns-registry-proxy-reader.contract'
-import { hsUtils } from 'src/util/hidden-service-utils'
+import { hsUtils } from '../util/hidden-service-utils'
 
 @Injectable()
 export class UnsService implements OnApplicationBootstrap {
@@ -145,11 +145,12 @@ export class UnsService implements OnApplicationBootstrap {
       const batch = domains.slice(i, i + batchSize)
 
       const batchResults = await Promise.all(
-        batch.map(async (domain) => {
-          const onionAddress = await this.resolveDomainToHiddenServiceAddress(domain)
+        batch.map(async (name) => {
+          const hiddenServiceAddress =
+            await this.resolveDomainToHiddenServiceAddress(name)
           return {
-            domain,
-            onionAddress
+            name,
+            hiddenServiceAddress
           }
         })
       )
@@ -216,12 +217,12 @@ export class UnsService implements OnApplicationBootstrap {
     // Check if mappings cache is still valid
     const now = Date.now()
     if (this.mappingsCache && now < this.mappingsCacheExpiry) {
-      this.logger.debug('Returning cached anyone domains with onion addresses')
+      this.logger.debug('Returning cached anyone domains with hidden service addresses')
       return this.mappingsCache
     }
 
     try {
-      this.logger.debug('Fetching anyone domains list and resolving onion addresses')
+      this.logger.debug('Fetching anyone domains list and resolving hidden service addresses')
 
       // Get the list of anyone domains
       const domains = await this.getAnyoneDomainsList()
@@ -231,12 +232,10 @@ export class UnsService implements OnApplicationBootstrap {
         return []
       }
 
-      this.logger.debug(`Resolving onion addresses for ${domains.length} anyone domains`)
+      this.logger.debug(`Resolving hidden service addresses for ${domains.length} anyone domains`)
 
-      // Resolve onion addresses for all domains
-      const results = (await this.tryResolveAll(domains, batchSize, delayMs)).filter(
-        mapping => mapping.onionAddress !== null
-      )
+      // Resolve hidden service addresses for all domains
+      const results = (await this.tryResolveAll(domains, batchSize, delayMs))
 
       // Update mappings cache
       this.mappingsCache = results
@@ -248,7 +247,7 @@ export class UnsService implements OnApplicationBootstrap {
 
       return results
     } catch (error) {
-      this.logger.error('Error getting anyone domains with onion addresses:', error)
+      this.logger.error('Error getting anyone domains with hidden service addresses:', error)
 
       // If we have stale cache data and the resolution fails, return it as fallback
       if (this.mappingsCache) {

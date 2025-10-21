@@ -28,26 +28,27 @@ describe('AppController', () => {
   describe('anyone-domains', () => {
     it('should fetch anyone domains mappings', async () => {
       const mockDomainMappings = [
-        { domain: 'example.anyone', onionAddress: 'aaa123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone' },
-        { domain: 'test.anyone', onionAddress: 'bbb123def456ghi789jkl012mno345pqr678stu901vwx234yz567891.anyone' },
-        { domain: 'demo.anyone', onionAddress: 'ccc123def456ghi789jkl012mno345pqr678stu901vwx234yz567892.anyone' }
+        { domain: 'example.anyone', hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone' },
+        { domain: 'test.anyone', hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone' },
+        { domain: 'demo.anyone', hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone' }
       ]
+      let expectedOutput = ''
+      for (const mapping of mockDomainMappings) {
+        expectedOutput += `${mapping.domain} ${mapping.hiddenServiceAddress}\n`
+      }
+      expectedOutput = expectedOutput.trim()
 
       jest.spyOn(appController['unsService'], 'getAnyoneDomainsList')
         .mockResolvedValue(mockDomainMappings.map(mapping => mapping.domain))
-      jest.spyOn(appController['unsService'], 'resolveDomainToOnionAddress')
+      jest.spyOn(appController['unsService'], 'resolveDomainToHiddenServiceAddress')
         .mockImplementation(async (domain: string) => {
           const mapping = mockDomainMappings.find(m => m.domain === domain)
-          return mapping ? mapping.onionAddress : null
+          return mapping ? mapping.hiddenServiceAddress : null
         })
 
       const domains = await appController.getAnyoneDomains()
-      expect(Array.isArray(domains)).toBe(true)
-      expect(domains).toEqual(
-        mockDomainMappings.map(
-          mapping => `${mapping.domain} ${mapping.onionAddress}`
-        )
-      )
+      expect(typeof domains === 'string').toBe(true)
+      expect(domains).toEqual(expectedOutput)
     })
   })
 })

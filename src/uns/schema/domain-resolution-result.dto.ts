@@ -1,4 +1,4 @@
 export type DomainResolutionResultDto = {
-  domain: string
-  onionAddress: string | null
+  name: string
+  hiddenServiceAddress: string | null
 }
