@@ -1,4 +1,6 @@
+import { ConsoleLogger } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
+import { ScheduleModule } from '@nestjs/schedule'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AppController } from './app.controller'
@@ -10,10 +12,25 @@ describe('AppController', () => {
 
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot({ isGlobal: true })],
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true }),
+        ScheduleModule.forRoot()
+      ],
       controllers: [ AppController ],
       providers: [ AppService, UnsService ],
-    }).compile()
+    })
+    .setLogger(
+      new ConsoleLogger({
+        logLevels: [
+          // 'error',
+          // 'warn',
+          // 'log',
+          // 'debug',
+          // 'verbose'
+        ]
+      })
+    )
+    .compile()
 
     appController = app.get<AppController>(AppController)
   })
@@ -37,14 +54,10 @@ describe('AppController', () => {
         expectedOutput += `${mapping.domain} ${mapping.hiddenServiceAddress}\n`
       }
       expectedOutput = expectedOutput.trim()
-
-      jest.spyOn(appController['unsService'], 'getAnyoneDomainsList')
-        .mockResolvedValue(mockDomainMappings.map(mapping => mapping.domain))
-      jest.spyOn(appController['unsService'], 'resolveDomainToHiddenServiceAddress')
-        .mockImplementation(async (domain: string) => {
-          const mapping = mockDomainMappings.find(m => m.domain === domain)
-          return mapping ? mapping.hiddenServiceAddress : null
-        })
+      appController['unsService']['mappingsCache'] = mockDomainMappings.map(mapping => ({
+        name: mapping.domain,
+        hiddenServiceAddress: mapping.hiddenServiceAddress
+      }))
 
       const domains = await appController.getAnyoneDomains()
       expect(typeof domains === 'string').toBe(true)

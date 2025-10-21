@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { SchedulerRegistry } from '@nestjs/schedule'
 import { ethers } from 'ethers'
 
 import {
@@ -14,25 +15,21 @@ import { hsUtils } from '../util/hidden-service-utils'
 @Injectable()
 export class UnsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(UnsService.name)
-
   private readonly SUPPORTED_TLDS = ['anyone']
   private readonly provider: ethers.JsonRpcProvider
   private readonly unsProxyReaderContract: ethers.Contract
   private readonly anyoneApiBaseUrl: string
   private readonly cacheTtlMs: number
-
-  // Cache properties
   private domainsCache: string[] | null = null
-  private domainsCacheExpiry: number = 0
   private mappingsCache: DomainResolutionResultDto[] | null = null
-  private mappingsCacheExpiry: number = 0
 
   constructor(
     private readonly config: ConfigService<{
       JSON_RPC_URL: string,
       ANYONE_API_BASE_URL: string,
       ANYONE_DOMAINS_CACHE_TTL_MS: string
-    }>
+    }>,
+    private readonly schedulerRegistry: SchedulerRegistry
   ) {
     const jsonRpcUrl = this.config.get<string>('JSON_RPC_URL', { infer: true })
     if (!jsonRpcUrl) {
@@ -69,9 +66,70 @@ export class UnsService implements OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap() {
-    this.logger.log('UnsService initialized - warming up cache')
-    await this.getAnyoneDomainsWithHiddenServiceAddresses()
-    this.logger.log('UnsService cache warm-up complete')
+    await this.enqueueCacheRefresh()
+  }
+
+  private async enqueueCacheRefresh() {
+    await this.refreshCache()
+
+    this.schedulerRegistry.addTimeout(
+      'enqueueCacheRefresh',
+      setTimeout(
+        this.enqueueCacheRefresh.bind(this),
+        this.cacheTtlMs
+      )
+    )
+    this.logger.log(
+      `Scheduled next cache refresh with TTL ${this.cacheTtlMs} ms`
+    )
+  }
+
+  async refreshCache() {
+    this.logger.log('Refreshing anyone domains cache')
+    
+    try {
+      // Fetch fresh domains list
+      this.logger.debug('Fetching fresh anyone domains list from API')
+      const response = await fetch(`${this.anyoneApiBaseUrl}/anyone-domains`)
+      if (!response.ok) {
+        throw new Error(`Anyone API error, status: ${response.status}`)
+      }
+      const domains = await response.json()
+
+      // Extract the "name" property from each domain object
+      const domainNames = domains
+        .map((domain: any) => domain.name)
+        .filter(Boolean)
+
+      // Update domains cache
+      this.domainsCache = domainNames
+      this.logger.debug(`Cached ${domainNames.length} domains`)
+
+      if (domainNames.length === 0) {
+        this.logger.warn('No anyone domains found')
+        this.mappingsCache = []
+        return
+      }
+
+      this.logger.debug(`Resolving hidden service addresses for ${domainNames.length} anyone domains`)
+
+      // Resolve hidden service addresses for all domains
+      const results = await this.tryResolveAll(domainNames)
+      const resultsWithHiddenServiceAddress = results.filter(
+        res => !!res.hiddenServiceAddress
+      )
+
+      // Update mappings cache
+      this.mappingsCache = results
+
+      this.logger.log(
+        `Successfully refreshed cache for [${results.length}] domains with ` +
+          `[${resultsWithHiddenServiceAddress.length}] hidden service addresses`
+      )
+    } catch (error) {
+      this.logger.error('Error refreshing cache:', error)
+      // Keep existing cache data on error
+    }
   }
 
   async resolveDomainToHiddenServiceAddress(
@@ -92,7 +150,9 @@ export class UnsService implements OnApplicationBootstrap {
       ] = await this.unsProxyReaderContract.getMany(keys, tokenId)
 
       if (hsAddress.trim() === '') {
-        this.logger.warn(`No hidden service record found for domain: ${domain}`)
+        this.logger.debug(
+          `No hidden service record found for domain: ${domain}`
+        )
         return null
       }
 
@@ -167,95 +227,24 @@ export class UnsService implements OnApplicationBootstrap {
   }
 
   async getAnyoneDomainsList(): Promise<string[]> {
-    // Check if cache is still valid
-    const now = Date.now()
-    if (this.domainsCache && now < this.domainsCacheExpiry) {
+    // Return cached data if available
+    if (this.domainsCache) {
       this.logger.debug('Returning cached anyone domains list')
       return this.domainsCache
     }
 
-    try {
-      this.logger.debug('Fetching fresh anyone domains list from API')
-      const response = await fetch(`${this.anyoneApiBaseUrl}/anyone-domains`)
-
-      if (!response.ok) {
-        throw new Error(`Anyone API error, status: ${response.status}`)
-      }
-
-      const domains = await response.json()
-
-      // Extract the "name" property from each domain object
-      const domainNames = domains
-        .map((domain: any) => domain.name)
-        .filter(Boolean)
-
-      // Update cache
-      this.domainsCache = domainNames
-      this.domainsCacheExpiry = now + this.cacheTtlMs
-
-      this.logger.debug(
-        `Cached ${domainNames.length} domains for ${this.cacheTtlMs}ms`
-      )
-      return domainNames
-    } catch (error) {
-      this.logger.error('Error fetching anyone domains list:', error)
-
-      // If we have stale cache data and the API is down, return it as fallback
-      if (this.domainsCache) {
-        this.logger.warn('API error, returning stale cached data as fallback')
-        return this.domainsCache
-      }
-
-      throw error
-    }
+    // If no cache is available, return empty array and let the cron job populate it
+    this.logger.warn('No cached domains available yet, returning empty array')
+    return []
   }
 
-  async getAnyoneDomainsWithHiddenServiceAddresses(
-    batchSize: number = 100,
-    delayMs: number = 1000
-  ): Promise<DomainResolutionResultDto[]> {
-    // Check if mappings cache is still valid
-    const now = Date.now()
-    if (this.mappingsCache && now < this.mappingsCacheExpiry) {
+  async getAnyoneDomainsWithHiddenServiceAddresses(): Promise<DomainResolutionResultDto[]> {
+    if (this.mappingsCache) {
       this.logger.debug('Returning cached anyone domains with hidden service addresses')
       return this.mappingsCache
     }
 
-    try {
-      this.logger.debug('Fetching anyone domains list and resolving hidden service addresses')
-
-      // Get the list of anyone domains
-      const domains = await this.getAnyoneDomainsList()
-
-      if (domains.length === 0) {
-        this.logger.warn('No anyone domains found')
-        return []
-      }
-
-      this.logger.debug(`Resolving hidden service addresses for ${domains.length} anyone domains`)
-
-      // Resolve hidden service addresses for all domains
-      const results = (await this.tryResolveAll(domains, batchSize, delayMs))
-
-      // Update mappings cache
-      this.mappingsCache = results
-      this.mappingsCacheExpiry = now + this.cacheTtlMs
-
-      this.logger.debug(
-        `Successfully resolved and cached ${results.length} domain mappings for ${this.cacheTtlMs}ms`
-      )
-
-      return results
-    } catch (error) {
-      this.logger.error('Error getting anyone domains with hidden service addresses:', error)
-
-      // If we have stale cache data and the resolution fails, return it as fallback
-      if (this.mappingsCache) {
-        this.logger.warn('Resolution error, returning stale cached mappings as fallback')
-        return this.mappingsCache
-      }
-
-      throw error
-    }
+    this.logger.warn('No cached domain mappings available yet, returning empty array')
+    return []
   }
 }
