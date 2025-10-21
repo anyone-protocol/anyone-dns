@@ -16,14 +16,17 @@ export class AppController {
   }
 
   @Get('tld/anyone')
-  async getAnyoneDomains(): Promise<string[]> {
+  async getAnyoneDomains() {
     try {
       const anyoneDomainsMappings =
-        await this.unsService.getAnyoneDomainsWithOnionAddresses()
+        await this.unsService.getAnyoneDomainsWithHiddenServiceAddresses()
 
-      return anyoneDomainsMappings.map(
-        mapping => `${mapping.domain} ${mapping.onionAddress}`
-      )
+      let output = ''
+      for (const mapping of anyoneDomainsMappings) {
+        output += `${mapping.domain} ${mapping.onionAddress}\n`
+      }
+
+      return output
     } catch (error) {
       throw new Error(`Failed to fetch anyone domains: ${error.message}`)
     }

@@ -5,6 +5,7 @@ import { UnsService } from './uns.service'
 @Module({
   imports: [],
   controllers: [],
-  providers: [UnsService],
+  providers: [ UnsService],
+  exports: [ UnsService ]
 })
 export class UnsModule {}

@@ -40,7 +40,7 @@ describe('UnsService', () => {
       // Mock the contract response
       mockContract.getMany.mockResolvedValue([expectedOnionAddress])
 
-      const result = await unsService.resolveDomainToOnionAddress(domain)
+      const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
 
       expect(mockContract.getMany).toHaveBeenCalledTimes(1)
       expect(result).toEqual(expectedOnionAddress)
@@ -52,7 +52,7 @@ describe('UnsService', () => {
       // Mock contract to respond with empty string
       mockContract.getMany.mockResolvedValue([''])
 
-      const result = await unsService.resolveDomainToOnionAddress(domain)
+      const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
 
       expect(result).toBeNull()
     })
@@ -63,7 +63,7 @@ describe('UnsService', () => {
       // Mock contract to throw a different error
       mockContract.getMany.mockRejectedValue(new Error('Network error'))
 
-      const result = await unsService.resolveDomainToOnionAddress(domain)
+      const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
 
       expect(result).toBeNull()
     })
@@ -124,7 +124,7 @@ describe('UnsService', () => {
       await unsService.tryResolveAll(domains, customBatchSize, customDelay)
 
       expect(mockSetTimeout).toHaveBeenCalledTimes(1) // Called once for delay between batches
-      expect(unsService.resolveDomainToOnionAddress).toHaveBeenCalledTimes(2)
+      expect(unsService.resolveDomainToHiddenServiceAddress).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -298,7 +298,7 @@ describe('UnsService', () => {
         .mockResolvedValueOnce(mockResolveResults[0])
         .mockResolvedValueOnce(mockResolveResults[1])
 
-      const result = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
 
       expect(global.fetch).toHaveBeenCalledTimes(1)
       expect(result).toHaveLength(2)
@@ -330,7 +330,7 @@ describe('UnsService', () => {
         .mockResolvedValueOnce(null) // No onion address
         .mockResolvedValueOnce('anyone.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone')
 
-      const result = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
 
       expect(result).toHaveLength(2)
       expect(result[0]).toEqual({
@@ -351,7 +351,7 @@ describe('UnsService', () => {
 
       ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
 
-      const result = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
 
       expect(global.fetch).toHaveBeenCalledTimes(1)
       expect(result).toEqual([])
@@ -360,7 +360,7 @@ describe('UnsService', () => {
     it('propagates errors from getAnyoneDomainsList', async () => {
       ;(global.fetch as jest.Mock).mockRejectedValue(new Error('API error'))
 
-      await expect(unsService.getAnyoneDomainsWithOnionAddresses())
+      await expect(unsService.getAnyoneDomainsWithHiddenServiceAddresses())
         .rejects.toThrow('API error')
     })
 
@@ -389,7 +389,7 @@ describe('UnsService', () => {
       const customBatchSize = 2
       const customDelay = 500
 
-      await unsService.getAnyoneDomainsWithOnionAddresses(customBatchSize, customDelay)
+      await unsService.getAnyoneDomainsWithHiddenServiceAddresses(customBatchSize, customDelay)
 
       expect(mockTryResolveAll).toHaveBeenCalledWith(
         ['batch1.anyone', 'batch2.anyone', 'batch3.anyone'],
@@ -422,8 +422,8 @@ describe('UnsService', () => {
         .mockResolvedValueOnce(mockResolveResults[1])
 
       // First call should perform full resolution
-      const result1 = await unsService.getAnyoneDomainsWithOnionAddresses()
-      expect(unsService.resolveDomainToOnionAddress).toHaveBeenCalledTimes(2)
+      const result1 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
+      expect(unsService.resolveDomainToHiddenServiceAddress).toHaveBeenCalledTimes(2)
       expect(result1).toHaveLength(2)
 
       // Reset the mock to verify it's not called again
@@ -431,14 +431,14 @@ describe('UnsService', () => {
       ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
 
       // Second call should use cached mappings (no resolution calls)
-      const result2 = await unsService.getAnyoneDomainsWithOnionAddresses()
-      expect(unsService.resolveDomainToOnionAddress).not.toHaveBeenCalled()
+      const result2 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
+      expect(unsService.resolveDomainToHiddenServiceAddress).not.toHaveBeenCalled()
       expect(global.fetch).not.toHaveBeenCalled() // Should not even fetch domains
       expect(result2).toEqual(result1) // Same cached result
 
       // Third call should also use cache
-      const result3 = await unsService.getAnyoneDomainsWithOnionAddresses()
-      expect(unsService.resolveDomainToOnionAddress).not.toHaveBeenCalled()
+      const result3 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
+      expect(unsService.resolveDomainToHiddenServiceAddress).not.toHaveBeenCalled()
       expect(result3).toEqual(result1) // Same cached result
     })
 
@@ -467,13 +467,13 @@ describe('UnsService', () => {
         .mockResolvedValueOnce(mockResult2)
 
       // First call - should resolve and cache
-      const result1 = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result1 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(mockResolve).toHaveBeenCalledTimes(1)
       expect(result1[0].onionAddress).toBe(mockResult1)
 
       // Advance time but not enough to expire cache (default TTL is 300000ms)
       mockTime += 100000 // Advance 100 seconds
-      const result2 = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result2 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(mockResolve).toHaveBeenCalledTimes(1) // Still only 1 call
       expect(result2[0].onionAddress).toBe(mockResult1) // Same cached result
 
@@ -481,7 +481,7 @@ describe('UnsService', () => {
       mockTime += 250000 // Total advance: 350 seconds (> 300 second default TTL)
       
       // Third call - should resolve again with fresh data
-      const result3 = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result3 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(mockResolve).toHaveBeenCalledTimes(2) // New resolution call
       expect(result3[0].onionAddress).toBe(mockResult2) // New resolved data
 
@@ -504,14 +504,14 @@ describe('UnsService', () => {
         .mockResolvedValueOnce(mockResult)
         .mockRejectedValueOnce(new Error('Resolution error'))
 
-      const result1 = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result1 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(result1[0].onionAddress).toBe('test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone')
 
       // Mock time advancement to expire cache
       jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 400000)
 
       // Second call with resolution error should return stale cache
-      const result2 = await unsService.getAnyoneDomainsWithOnionAddresses()
+      const result2 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
       expect(result2[0].onionAddress).toBe('test.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone') // Stale cached data
 
       jest.restoreAllMocks()
