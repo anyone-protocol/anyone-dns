@@ -1,7 +1,9 @@
-import { Controller, Get } from '@nestjs/common'
+import { Controller, Get, NotFoundException, Param } from '@nestjs/common'
 
 import { AppService } from './app.service'
 import { UnsService } from './uns/uns.service'
+import { hsUtils } from './util/hidden-service-utils'
+import { DomainResolutionResult } from './uns/schema/domain-resolution-result'
 
 @Controller()
 export class AppController {
@@ -24,5 +26,25 @@ export class AppController {
         `Failed get hosts list: ${error.message}`
       )
     }
+  }
+
+  @Get('tld/anyone/:name')
+  async getAnyoneDomain(@Param('name') name: string) {
+    const result = await this.unsService.getDomain(name)
+
+    if (result) {
+      if (result.result === 'success') {
+        return hsUtils.formatHostsFileEntry(
+          result.domain,
+          result.hiddenServiceAddress
+        ).trim()
+      }
+
+      if (result.result === 'error') {
+        return result.error.message
+      }
+    }
+
+    throw new NotFoundException('Domain not found')
   }
 }

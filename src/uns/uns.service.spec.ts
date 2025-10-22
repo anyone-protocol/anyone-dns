@@ -4,6 +4,10 @@ import { ScheduleModule } from '@nestjs/schedule'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { UnsService } from './uns.service'
+import {
+  HiddenServiceRecordNotFoundError
+} from './errors/hidden-service-record-not-found.error'
+import { DomainResolutionError } from './errors/domain-resolution.error'
 
 describe('UnsService', () => {
   let unsService: UnsService
@@ -73,7 +77,7 @@ describe('UnsService', () => {
 
       const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
 
-      expect(result).toBeNull()
+      expect(result).toBeInstanceOf(HiddenServiceRecordNotFoundError)
     })
 
     it('resolves to null if contract throws other errors', async () => {
@@ -84,17 +88,18 @@ describe('UnsService', () => {
 
       const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
 
-      expect(result).toBeNull()
+      expect(result).toBeInstanceOf(DomainResolutionError)
     })
 
     it('resolves multiple domains in bulk', async () => {
       const domains = ['test1.anyone', 'test2.anyone', 'test3.anyone']
 
       // Mock individual resolution calls
+      const noRecordError = new HiddenServiceRecordNotFoundError(domains[2])
       const mockResults = [
-        'test1.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
-        'test2.anyone 987fed654cba32109876543210987654321098765432109876543210.anyone',
-        null // Third domain has no record
+        'abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
+        '987fed654cba32109876543210987654321098765432109876543210.anyone',
+        noRecordError
       ]
 
       jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
@@ -106,16 +111,19 @@ describe('UnsService', () => {
 
       expect(results).toHaveLength(3)
       expect(results[0]).toEqual({
-        name: domains[0],
-        hiddenServiceAddress: mockResults[0]
+        domain: domains[0],
+        hiddenServiceAddress: mockResults[0],
+        result: 'success'
       })
       expect(results[1]).toEqual({
-        name: domains[1],
-        hiddenServiceAddress: mockResults[1]
+        domain: domains[1],
+        hiddenServiceAddress: mockResults[1],
+        result: 'success'
       })
       expect(results[2]).toEqual({
-        name: domains[2],
-        hiddenServiceAddress: null
+        domain: domains[2],
+        error: noRecordError,
+        result: 'error'
       })
     })
 
@@ -291,132 +299,8 @@ describe('UnsService', () => {
       const domains = await unsService.getAnyoneDomainsList()
       expect(domains).toEqual([])
       
-      const mappings = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-      expect(mappings).toEqual([])
-    })
-  })
-
-  describe('caching domain mappings', () => {
-    beforeEach(() => {
-      // Mock fetch globally
-      global.fetch = jest.fn()
-    })
-
-    afterEach(() => {
-      jest.restoreAllMocks()
-    })
-
-    it('returns empty array when no cache is available', async () => {
-      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-      expect(result).toEqual([])
-    })
-
-    it('returns cached domain mappings when cache is populated', async () => {
-      const mockDomains = [
-        { name: 'test1.anyone' },
-        { name: 'test2.anyone' }
-      ]
-
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
-      }
-
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      // Mock the resolveDomainToHiddenServiceAddress method
-      const mockResolveResults = [
-        'test1.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
-        'test2.anyone 987fed654cba32109876543210987654321098765432109876543210.anyone'
-      ]
-
-      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValueOnce(mockResolveResults[0])
-        .mockResolvedValueOnce(mockResolveResults[1])
-
-      // Populate cache via refreshCache
-      await unsService.refreshCache()
-
-      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-
-      expect(result).toHaveLength(2)
-      expect(result[0]).toEqual({
-        name: mockDomains[0].name,
-        hiddenServiceAddress: mockResolveResults[0]
-      })
-      expect(result[1]).toEqual({
-        name: mockDomains[1].name,
-        hiddenServiceAddress: mockResolveResults[1]
-      })
-    })
-
-    it('handles domains with no hidden service addresses', async () => {
-      const mockDomains = [
-        { name: 'norecord.anyone' },
-        { name: 'hasrecord.anyone' }
-      ]
-      
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
-      }
-      
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-      
-      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValueOnce(null) // No record
-        .mockResolvedValueOnce('6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone')
-
-      await unsService.refreshCache()
-      const result = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-
-      expect(result).toHaveLength(2)
-      expect(result[0]).toEqual({
-        name: 'norecord.anyone',
-        hiddenServiceAddress: null
-      })
-      expect(result[1]).toEqual({
-        name: 'hasrecord.anyone',
-        hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone'
-      })
-    })
-
-    it('maintains cached mappings across multiple calls', async () => {
-      const mockDomains = [
-        { name: 'cached1.anyone' },
-        { name: 'cached2.anyone' }
-      ]
-
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
-      }
-
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      // Mock resolution results
-      const mockResolveResults = [
-        'cached1.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
-        'cached2.anyone 987fed654cba32109876543210987654321098765432109876543210.anyone'
-      ]
-
-      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValueOnce(mockResolveResults[0])
-        .mockResolvedValueOnce(mockResolveResults[1])
-
-      // Populate cache
-      await unsService.refreshCache()
-      expect(unsService.resolveDomainToHiddenServiceAddress).toHaveBeenCalledTimes(2)
-
-      // Multiple calls should return same cached data without additional resolution calls
-      const result1 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-      const result2 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-      const result3 = await unsService.getAnyoneDomainsWithHiddenServiceAddresses()
-
-      expect(unsService.resolveDomainToHiddenServiceAddress).toHaveBeenCalledTimes(2) // Still only 2 calls
-      expect(result1).toEqual(result2)
-      expect(result2).toEqual(result3)
-      expect(result1).toHaveLength(2)
+      const hosts = await unsService.getHostsList()
+      expect(hosts).toEqual('')
     })
   })
 })

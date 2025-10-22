@@ -4,24 +4,36 @@ import { SchedulerRegistry } from '@nestjs/schedule'
 import { ethers } from 'ethers'
 
 import {
-  DomainResolutionResultDto
-} from './schema/domain-resolution-result.dto'
+  DomainResolutionResult
+} from './schema/domain-resolution-result'
 import {
   UNS_REGISTRY_PROXY_READER_ABI,
   UNS_REGISTRY_PROXY_READER_ADDRESS
 } from './schema/uns-registry-proxy-reader.contract'
 import { hsUtils } from '../util/hidden-service-utils'
+import { DomainResolutionError } from './errors/domain-resolution.error'
+import { UnsupportedUnsTldError } from './errors/unsupported-uns-tld.error'
+import {
+  HiddenServiceRecordNotFoundError
+} from './errors/hidden-service-record-not-found.error'
+import {
+  UnsupportedHiddenServiceTldError
+} from './errors/unsupported-hidden-service-tld.error'
+import {
+  HiddenServiceAddressInvalidError
+} from './errors/hidden-service-address-invalid.error'
 
 @Injectable()
 export class UnsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(UnsService.name)
   private readonly SUPPORTED_TLDS = ['anyone']
+  private readonly UNS_STORAGE_KEYS = [ 'token.ANYONE.ANYONE.ANYONE.address' ]
   private readonly provider: ethers.JsonRpcProvider
   private readonly unsProxyReaderContract: ethers.Contract
   private readonly anyoneApiBaseUrl: string
   private readonly cacheTtlMs: number
   private domainsCache: string[] | null = null
-  private mappingsCache: DomainResolutionResultDto[] | null = null
+  private mappingsCache: { [key: string]: DomainResolutionResult } = {}
   private hostsListCache: string = ''
 
   constructor(
@@ -108,29 +120,32 @@ export class UnsService implements OnApplicationBootstrap {
 
       if (domainNames.length === 0) {
         this.logger.warn('No anyone domains found')
-        this.mappingsCache = []
+        this.mappingsCache = {}
         this.hostsListCache = ''
         return
       }
 
-      this.logger.debug(`Resolving hidden service addresses for ${domainNames.length} anyone domains`)
+      this.logger.debug(
+        `Resolving hidden service addresses for `
+          + `${domainNames.length} anyone domains`
+      )
 
       // Resolve hidden service addresses for all domains
       const results = await this.tryResolveAll(domainNames)
-      const resultsWithHiddenServiceAddress = results.filter(
-        res => !!res.hiddenServiceAddress
-      )
+      const successfulResults = results.filter(res => res.result === 'success')
 
       // Update mappings cache
-      this.mappingsCache = results
-      this.hostsListCache = resultsWithHiddenServiceAddress
-        .map(mapping => `${mapping.name} ${mapping.hiddenServiceAddress}`)
+      for (const res of results) {
+        this.mappingsCache[res.domain] = res
+      }
+      this.hostsListCache = successfulResults
+        .map(mapping => `${mapping.domain} ${mapping.hiddenServiceAddress}`)
         .join('\n')
         .trim()
 
       this.logger.log(
         `Successfully refreshed cache for [${results.length}] domains with ` +
-          `[${resultsWithHiddenServiceAddress.length}] hidden service addresses`
+          `[${successfulResults.length}] hidden service addresses`
       )
     } catch (error) {
       this.logger.error('Error refreshing cache:', error)
@@ -140,84 +155,67 @@ export class UnsService implements OnApplicationBootstrap {
 
   async resolveDomainToHiddenServiceAddress(
     domain: string
-  ): Promise<string | null> {
+  ): Promise<string | DomainResolutionError> {
     const tld = domain.split('.').pop() || ''
     if (!this.SUPPORTED_TLDS.includes(tld)) {
-      this.logger.warn(`TLD .${tld} is not supported for domain: ${domain}`)
-      return null
+      const error = new UnsupportedUnsTldError(tld, domain)
+      this.logger.warn(error.message)
+      return error
     }
 
-    const tokenId = BigInt(ethers.namehash(domain))
-    const keys = [ 'token.ANYONE.ANYONE.ANYONE.address' ]
-
     try {
-      const [
-        hsAddress
-      ] = await this.unsProxyReaderContract.getMany(keys, tokenId)
+      const tokenId = BigInt(ethers.namehash(domain))
+      const [ hsAddress ] = await this.unsProxyReaderContract.getMany(
+        this.UNS_STORAGE_KEYS,
+        tokenId
+      )
 
       if (hsAddress.trim() === '') {
-        this.logger.debug(
-          `No hidden service record found for domain: ${domain}`
-        )
-        return null
+        const error = new HiddenServiceRecordNotFoundError(domain)
+        this.logger.debug(error.message)
+        return error
       }
 
       const hsTld = hsAddress.split('.').pop() || ''
       if (!this.SUPPORTED_TLDS.includes(hsTld)) {
-        this.logger.warn(
-          `Hidden Service TLD .${hsTld} is not supported for hidden service ` +
-            `address: ${hsAddress} of domain: ${domain}`
+        const error = new UnsupportedHiddenServiceTldError(
+          hsTld,
+          hsAddress,
+          domain
         )
-        return null
+        this.logger.warn(error.message)
+        return error
       }
 
       if (hsUtils.isValidHiddenServiceAddress(hsAddress) === false) {
-        this.logger.warn(
-          `Invalid hidden service address checksum for address: ` +
-            `${hsAddress} of domain: ${domain}`
-        )
-        return null
+        const error = new HiddenServiceAddressInvalidError(hsAddress, domain)
+        this.logger.warn(error.message)
+        return error
       }
 
       return hsAddress
     } catch (error) {
-      if (
-        error.shortMessage &&
-        error.shortMessage.startsWith('execution reverted (no data present')
-      ) {
-        this.logger.error(
-          `No hidden service record found for domain: ${domain}`
-        )
-        return null
-      }
-
-      this.logger.error(
-        'Error fetching values from UNS Registry: ',
-        error.stack
-      )
+      const errorMessage =
+        `Error fetching records from UNS Registry for domain ${domain}`
+      this.logger.error(errorMessage, error.stack)
+      return new DomainResolutionError(errorMessage)
     }
-
-    return null
   }
 
   async tryResolveAll(
     domains: string[],
     batchSize: number = 100,
     delayMs: number = 1000
-  ): Promise<DomainResolutionResultDto[]> {
-    const results: DomainResolutionResultDto[] = []
+  ): Promise<DomainResolutionResult[]> {
+    const results: DomainResolutionResult[] = []
 
     for (let i = 0; i < domains.length; i += batchSize) {
       const batch = domains.slice(i, i + batchSize)
 
       const batchResults = await Promise.all(
-        batch.map(async (name) => {
-          const hiddenServiceAddress =
-            await this.resolveDomainToHiddenServiceAddress(name)
-          return {
-            name,
-            hiddenServiceAddress
-          }
+        batch.map<Promise<DomainResolutionResult>>(async (domain) => {
+          const resolved = await this.resolveDomainToHiddenServiceAddress(domain)
+          return hsUtils.mapDomainResolutionToResult(domain, resolved)
         })
       )
 
@@ -244,17 +242,11 @@ export class UnsService implements OnApplicationBootstrap {
     return []
   }
 
-  async getAnyoneDomainsWithHiddenServiceAddresses(): Promise<DomainResolutionResultDto[]> {
-    if (this.mappingsCache) {
-      this.logger.debug('Returning cached anyone domains with hidden service addresses')
-      return this.mappingsCache
-    }
-
-    this.logger.warn('No cached domain mappings available yet, returning empty array')
-    return []
-  }
-
   async getHostsList(): Promise<string> {
     return this.hostsListCache
+  }
+
+  async getDomain(name: string): Promise<DomainResolutionResult | null> {
+    return this.mappingsCache[name] || null
   }
 }

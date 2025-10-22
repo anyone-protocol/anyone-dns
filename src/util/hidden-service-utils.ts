@@ -1,6 +1,9 @@
 import * as base32 from 'hi-base32'
 import * as crypto from 'crypto'
 
+import { DomainResolutionError } from '../uns/errors/domain-resolution.error'
+import { DomainResolutionResult } from '../uns/schema/domain-resolution-result'
+
 export const hsUtils = {
   isValidHiddenServiceAddress(address: string): boolean {
     if (!address || address.trim() === '') {
@@ -36,5 +39,27 @@ export const hsUtils = {
 
       return checksum === expectedChecksum
     } catch (e) { return false }
+  },
+
+  formatHostsFileEntry(domain: string, hiddenServiceAddress: string) {
+    return `${domain} ${hiddenServiceAddress}\n`
+  },
+
+  mapDomainResolutionToResult(
+    domain: string,
+    result: string | DomainResolutionError
+  ): DomainResolutionResult {
+    if (result instanceof DomainResolutionError) {
+      return {
+        result: 'error',
+        domain: domain,
+        error: result
+      }
+    }
+    return {
+      result: 'success',
+      domain: domain,
+      hiddenServiceAddress: result
+    }
   }
 }
