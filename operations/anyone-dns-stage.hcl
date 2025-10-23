@@ -22,7 +22,7 @@ job "anyone-dns-stage" {
       driver = "docker"
 
       config {
-        image = "gchr.io/anyone-protocol/anyone-dns:${VERSION}"
+        image = "ghcr.io/anyone-protocol/anyone-dns:${VERSION}"
       }
 
       env {
