@@ -8,33 +8,6 @@ job "anyone-dns-stage" {
     value = "stage"
   }
 
-  service {
-    name = "dns-service-stage"
-    port = "http"
-    tags = [
-      "logging",
-      "traefik-ec.enable=true",
-      "traefik-ec.http.routers.api-stage.rule=Host(`dns-stage.ec.anyone.tech`)",
-      "traefik-ec.http.routers.api-stage.entrypoints=https",
-      "traefik-ec.http.routers.api-stage.tls=true",
-      "traefik-ec.http.routers.api-stage.tls.certresolver=anyoneresolver",
-      "traefik-ec.http.routers.api-stage.middlewares=api-stage-ratelimit",
-      "traefik-ec.http.middlewares.api-stage-ratelimit.ratelimit.average=1000"
-    ]
-    check {
-      name = "Api service check"
-      type = "http"
-      path = "/"
-      interval = "10s"
-      timeout = "10s"
-      address_mode = "alloc"
-      check_restart {
-        limit = 10
-        grace = "30s"
-      }
-    }
-  }
-
   group "anyone-dns-stage-group" {
     count = 1
 
@@ -73,6 +46,33 @@ job "anyone-dns-stage" {
       resources {
         cpu = 1024
         memory = 1024
+      }
+    }
+
+    service {
+      name = "dns-service-stage"
+      port = "http"
+      tags = [
+        "logging",
+        "traefik-ec.enable=true",
+        "traefik-ec.http.routers.api-stage.rule=Host(`dns-stage.ec.anyone.tech`)",
+        "traefik-ec.http.routers.api-stage.entrypoints=https",
+        "traefik-ec.http.routers.api-stage.tls=true",
+        "traefik-ec.http.routers.api-stage.tls.certresolver=anyoneresolver",
+        "traefik-ec.http.routers.api-stage.middlewares=api-stage-ratelimit",
+        "traefik-ec.http.middlewares.api-stage-ratelimit.ratelimit.average=1000"
+      ]
+      check {
+        name = "Api service check"
+        type = "http"
+        path = "/"
+        interval = "10s"
+        timeout = "10s"
+        address_mode = "alloc"
+        check_restart {
+          limit = 10
+          grace = "30s"
+        }
       }
     }
   }
