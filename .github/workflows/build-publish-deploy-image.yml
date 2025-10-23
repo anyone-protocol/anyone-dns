@@ -1,0 +1,65 @@
+name: Build, Publish, & Deploy Anyone DNS Image
+
+on:
+  push:
+    branches: master
+    tags:
+      - v*
+env:
+  IMAGE_NAME: operator-registry-controller
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build image
+        run: docker build . --file Dockerfile --tag $IMAGE_NAME --label "runnumber=${GITHUB_RUN_ID}"
+
+      - name: Log in to registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+
+      - name: Push image
+        run: |
+          IMAGE_ID=ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME
+
+          # Change all uppercase to lowercase
+          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+
+          # Strip "v" prefix from tag name
+          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+
+          # Use Docker `latest` tag convention
+          [ "$VERSION" == "master" ] && VERSION=stage
+          echo IMAGE_ID=$IMAGE_ID
+          echo VERSION=$VERSION
+
+          echo -e "{\"deploy\":\"$VERSION\",\"commit_sha\":\"${GITHUB_SHA}\"}" > deploy-vars.json
+
+          docker tag $IMAGE_NAME $IMAGE_ID:${GITHUB_SHA}
+          docker push $IMAGE_ID:${GITHUB_SHA}
+      
+      - name: Deploy new version
+        env:
+          NOMAD_CACERT: operations/admin-ui-ca.crt
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN_OPERATOR_REGISTRY_CONTROLLER_DEPLOY }}
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+        run: |
+          curl -L https://releases.hashicorp.com/nomad/1.10.2/nomad_1.10.2_linux_amd64.zip -o nomad.zip
+          unzip nomad.zip
+
+          if grep -q "stage" deploy-vars.json; then
+            sed -i "s/\[\[ .commit_sha \]\]/${GITHUB_SHA}/g" operations/anyone-dns-stage.hcl
+            ./nomad job run operations/anyone-dns-stage.hcl
+          else
+            sed -i "s/\[\[ .commit_sha \]\]/${GITHUB_SHA}/g" operations/anyone-dns-live.hcl
+            ./nomad job run operations/anyone-dns-live.hcl
+          fi
