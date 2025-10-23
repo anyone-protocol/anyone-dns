@@ -55,15 +55,15 @@ job "anyone-dns-stage" {
       tags = [
         "logging",
         "traefik-ec.enable=true",
-        "traefik-ec.http.routers.api-stage.rule=Host(`dns-stage.ec.anyone.tech`)",
-        "traefik-ec.http.routers.api-stage.entrypoints=https",
-        "traefik-ec.http.routers.api-stage.tls=true",
-        "traefik-ec.http.routers.api-stage.tls.certresolver=anyoneresolver",
-        "traefik-ec.http.routers.api-stage.middlewares=api-stage-ratelimit",
-        "traefik-ec.http.middlewares.api-stage-ratelimit.ratelimit.average=1000"
+        "traefik-ec.http.routers.dns-stage.rule=Host(`dns-stage.ec.anyone.tech`)",
+        "traefik-ec.http.routers.dns-stage.entrypoints=https",
+        "traefik-ec.http.routers.dns-stage.tls=true",
+        "traefik-ec.http.routers.dns-stage.tls.certresolver=anyoneresolver",
+        # "traefik-ec.http.routers.dns-stage.middlewares=api-stage-ratelimit",
+        # "traefik-ec.http.middlewares.api-stage-ratelimit.ratelimit.average=1000"
       ]
       check {
-        name = "Api service check"
+        name = "DNS stage service check"
         type = "http"
         path = "/"
         interval = "10s"
