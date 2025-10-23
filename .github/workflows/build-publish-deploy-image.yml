@@ -6,7 +6,7 @@ on:
     tags:
       - v*
 env:
-  IMAGE_NAME: operator-registry-controller
+  IMAGE_NAME: anyone-dns
 
 jobs:
   push:
