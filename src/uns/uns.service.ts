@@ -110,7 +110,8 @@ export class UnsService implements OnApplicationBootstrap {
       this.logger.debug('Fetching fresh anyone domains list from API')
       const response = await fetch(`${this.anyoneApiBaseUrl}/anyone-domains`)
       if (!response.ok) {
-        throw new Error(`Anyone API error, status: ${response.status}`)
+        this.logger.error(`Anyone API error, status: ${response.status}`)
+        return
       }
       const domains = await response.json()
 
@@ -154,7 +155,6 @@ export class UnsService implements OnApplicationBootstrap {
       )
     } catch (error) {
       this.logger.error('Error refreshing cache:', error)
-      // Keep existing cache data on error
     }
   }
 
