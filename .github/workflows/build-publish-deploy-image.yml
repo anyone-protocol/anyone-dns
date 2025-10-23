@@ -50,7 +50,7 @@ jobs:
       - name: Deploy new version
         env:
           NOMAD_CACERT: operations/admin-ui-ca.crt
-          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN_OPERATOR_REGISTRY_CONTROLLER_DEPLOY }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN_ANYONE_DNS_DEPLOY }}
           NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
         run: |
           curl -L https://releases.hashicorp.com/nomad/1.10.2/nomad_1.10.2_linux_amd64.zip -o nomad.zip
