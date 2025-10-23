@@ -9,7 +9,7 @@ job "anyone-dns-stage" {
   }
 
   service {
-    name = "api-service-stage"
+    name = "dns-service-stage"
     port = "http"
     tags = [
       "logging",
