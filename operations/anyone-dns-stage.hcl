@@ -35,9 +35,9 @@ job "anyone-dns-stage" {
 
       template {
         data = <<-EOF
-        {{ with secret "kv/stage-services/api-service-stage" }}
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
         JSON_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_1 }}"
-        {{ end }}
+        {{- end }}
         EOF
         destination = "secrets/config.env"
         env = true
