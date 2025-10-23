@@ -59,8 +59,8 @@ job "anyone-dns-stage" {
         "traefik-ec.http.routers.dns-stage.entrypoints=https",
         "traefik-ec.http.routers.dns-stage.tls=true",
         "traefik-ec.http.routers.dns-stage.tls.certresolver=anyoneresolver",
-        # "traefik-ec.http.routers.dns-stage.middlewares=api-stage-ratelimit",
-        # "traefik-ec.http.middlewares.api-stage-ratelimit.ratelimit.average=1000"
+        "traefik-ec.http.routers.dns-stage.middlewares=dns-stage-ratelimit",
+        "traefik-ec.http.middlewares.dns-stage-ratelimit.ratelimit.average=100"
       ]
       check {
         name = "DNS stage service check"
