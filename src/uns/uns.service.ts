@@ -85,6 +85,11 @@ export class UnsService implements OnApplicationBootstrap {
   private async enqueueCacheRefresh() {
     await this.refreshCache()
 
+    try {
+      this.schedulerRegistry.getTimeout('enqueueCacheRefresh') &&
+        this.schedulerRegistry.deleteTimeout('enqueueCacheRefresh')
+    } catch (e) {}
+
     this.schedulerRegistry.addTimeout(
       'enqueueCacheRefresh',
       setTimeout(
