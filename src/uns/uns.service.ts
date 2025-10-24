@@ -251,7 +251,7 @@ export class UnsService implements OnApplicationBootstrap {
     return this.hostsListCache
   }
 
-  async getDomain(name: string): Promise<DomainResolutionResult | null> {
-    return this.mappingsCache[name] || null
+  async getDomain(domain: string): Promise<DomainResolutionResult | null> {
+    return this.mappingsCache[domain] || null
   }
 }

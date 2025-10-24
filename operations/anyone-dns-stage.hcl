@@ -3,32 +3,48 @@ job "anyone-dns-stage" {
   type = "service"
   namespace = "stage-services"
 
+  ## NB: Remove after development testing is complete
+  reschedule { attempts = 0 }
+
+  ## NB: Needs public ip in anonrc for hidden service
   constraint {
-    attribute = "${meta.pool}"
-    value = "stage"
+    attribute = "${node.unique.id}"
+    value = "2adb1799-9284-b274-ecf9-29218986ff16" # any1-hel-stage-1
   }
+  # constraint {
+  #   attribute = "${meta.pool}"
+  #   value = "stage"
+  # }
 
   group "anyone-dns-stage-group" {
     count = 1
+
+    ## NB: Remove after development testing is complete
+    restart {
+      attempts = 0
+      mode     = "fail"
+    }
 
     network {
       mode = "bridge"
       port "http" {
         host_network = "wireguard"
       }
-      port "relaycontrol" {
-        host_network = "wireguard"
-      }
-      port "relayor" {
-        static = 443 # TODO ???
-      }
     }
+
+    # network {
+    #   mode = "host"
+    #   port "relayor" {
+    #     static = 9222
+    #   }
+    # }
 
     task "anyone-dns-stage-task" {
       driver = "docker"
 
       config {
         image = "ghcr.io/anyone-protocol/anyone-dns:${VERSION}"
+        # network_mode = "bridge"
       }
 
       env {
@@ -50,8 +66,8 @@ job "anyone-dns-stage" {
       }
 
       resources {
-        cpu = 1024
-        memory = 1024
+        cpu = 512
+        memory = 512
       }
     }
 
@@ -69,7 +85,7 @@ job "anyone-dns-stage" {
         "traefik-ec.http.middlewares.dns-stage-ratelimit.ratelimit.average=100"
       ]
       check {
-        name = "DNS stage service check"
+        name = "Anyone DNS stage service check"
         type = "http"
         path = "/"
         interval = "10s"
@@ -82,75 +98,85 @@ job "anyone-dns-stage" {
       }
     }
 
-    task "anyone-dns-stage-relay-task" {
-      driver = "docker"
+    # task "anyone-dns-stage-relay-task" {
+    #   driver = "docker"
 
-      config {
-        image = "ghcr.io/anyone-protocol/ator-protocol-dev-amd64:latest-pr"
-        force_pull = true
-        volumes = [ "local/anonrc:/etc/anon/anonrc" ]
-      }
+    #   config {
+    #     image = "ghcr.io/anyone-protocol/ator-protocol-dev-amd64:latest-pr"
+    #     force_pull = true
+    #     volumes = [ "local/anonrc:/etc/anon/anonrc" ]
+    #     network_mode = "host"
+    #   }
 
-      template {
-        data = <<-EOF
-        User anond
-        Nickname AnyoneDNSStage
-        AgreeToTerms 1
+    #   template {
+    #     data = <<-EOF
+    #     User anond
+    #     Nickname AnyoneDNSStage
+    #     AgreeToTerms 1
 
-        ControlPort {{ env `NOMAD_PORT_relaycontrol_port` }}
-        ORPort {{ env `NOMAD_PORT_relayor` }} IPv4Only
-        DataDirectory /var/lib/anon
-        HiddenServiceDir /var/lib/anon/anyone-dns
-        HiddenServicePort 443 127.0.0.1:{{ env `NOMAD_PORT_http` }}
+    #     # TODO -> move this to consul
+    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
+    #     Address {{ .Data.data.RELAY_IPV4_STAGE }}
+    #     {{- end }}
 
-        ## TODO ??? ##
-        SocksPort auto
-        SafeLogging 1
-        UseEntryGuards 0
-        ProtocolWarnings 1
-        FetchDirInfoEarly 1
-        LogTimeGranularity 1
-        UseMicrodescriptors 0
-        FetchDirInfoExtraEarly 1
-        FetchUselessDescriptors 1
-        LearnCircuitBuildTimeout 0
-        EOF
-        destination = "local/anonrc"
-      }
+    #     # ORPort {{ env `NOMAD_HOST_PORT_relayor` }} IPv4Only
+    #     ORPort 9222 IPv4Only
+    #     DataDirectory /var/lib/anon
+    #     HiddenServiceDir /var/lib/anon/anyone-dns
+    #     HiddenServicePort 80 {{ env `NOMAD_ADDR_http` }}
 
-      vault { role = "any1-nomad-workloads-controller" }
+    #     SocksPort 0
+    #     ControlSocket 0
 
-      template {
-        data = <<-EOF
-        {{- with secret "kv/stage-services/anyone-dns-stage" }}
-        {{ .Data.data.ANON_0_HS_HOSTNAME }}
-        {{- end }}
-        EOF
-        destination = "/secrets/hidden-service/hostname"
-      }
+    #     ## TODO ##
+    #     # SafeLogging 1
+    #     # UseEntryGuards 0
+    #     # ProtocolWarnings 1
+    #     # FetchDirInfoEarly 1
+    #     # LogTimeGranularity 1
+    #     # UseMicrodescriptors 0
+    #     # FetchDirInfoExtraEarly 1
+    #     # FetchUselessDescriptors 1
+    #     # LearnCircuitBuildTimeout 0
+    #     EOF
+    #     destination = "local/anonrc"
+    #   }
 
-      template {
-        data = <<-EOF
-        {{- with secret "kv/stage-services/anyone-dns-stage" }}
-        {{ base64Decode .Data.data.ANON_0_HS_ED25519_PUBLIC_KEY_BASE64 }}
-        {{- end }}
-        EOF
-        destination = "/secrets/hidden-service/hs_ed25519_public_key"
-      }
+    #   vault { role = "any1-nomad-workloads-controller" }
 
-      template {
-        data = <<-EOF
-        {{- with secret "kv/stage-services/anyone-dns-stage" }}
-        {{ base64Decode .Data.data.ANON_0_HS_ED25519_SECRET_KEY_BASE64 }}
-        {{- end }}
-        EOF
-        destination = "/secrets/hidden-service/hs_ed25519_secret_key"
-      }
+    #   # TODO -> other keys
 
-      resources {
-        cpu = 1024
-        memory = 1024
-      }
-    }
+    #   template {
+    #     data = <<-EOF
+    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
+    #     {{ .Data.data.ANON_0_HS_HOSTNAME }}
+    #     {{- end }}
+    #     EOF
+    #     destination = "/secrets/hidden-service/hostname"
+    #   }
+
+    #   template {
+    #     data = <<-EOF
+    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
+    #     {{ base64Decode .Data.data.ANON_0_HS_ED25519_PUBLIC_KEY_BASE64 }}
+    #     {{- end }}
+    #     EOF
+    #     destination = "/secrets/hidden-service/hs_ed25519_public_key"
+    #   }
+
+    #   template {
+    #     data = <<-EOF
+    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
+    #     {{ base64Decode .Data.data.ANON_0_HS_ED25519_SECRET_KEY_BASE64 }}
+    #     {{- end }}
+    #     EOF
+    #     destination = "/secrets/hidden-service/hs_ed25519_secret_key"
+    #   }
+
+    #   resources {
+    #     cpu = 512
+    #     memory = 512
+    #   }
+    # }
   }
 }

@@ -30,7 +30,7 @@ export class AppController {
 
   @Get('tld/anyone/:name')
   async getAnyoneDomain(@Param('name') name: string) {
-    const result = await this.unsService.getDomain(name)
+    const result = await this.unsService.getDomain(`${name}.anyone`)
 
     if (result) {
       if (result.result === 'success') {
