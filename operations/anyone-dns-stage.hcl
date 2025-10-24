@@ -32,13 +32,6 @@ job "anyone-dns-stage" {
       }
     }
 
-    # network {
-    #   mode = "host"
-    #   port "relayor" {
-    #     static = 9222
-    #   }
-    # }
-
     task "anyone-dns-stage-task" {
       driver = "docker"
 
@@ -97,86 +90,127 @@ job "anyone-dns-stage" {
         }
       }
     }
+  }
 
-    # task "anyone-dns-stage-relay-task" {
-    #   driver = "docker"
+  group "anyone-dns-stage-relay-group" {
+    count = 1
 
-    #   config {
-    #     image = "ghcr.io/anyone-protocol/ator-protocol-dev-amd64:latest-pr"
-    #     force_pull = true
-    #     volumes = [ "local/anonrc:/etc/anon/anonrc" ]
-    #     network_mode = "host"
-    #   }
+    ## NB: Remove after development testing is complete
+    restart {
+      attempts = 0
+      mode     = "fail"
+    }
 
-    #   template {
-    #     data = <<-EOF
-    #     User anond
-    #     Nickname AnyoneDNSStage
-    #     AgreeToTerms 1
+    network {
+      port "relayor" {
+        static = 9222
+      }
+    }
 
-    #     # TODO -> move this to consul
-    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
-    #     Address {{ .Data.data.RELAY_IPV4_STAGE }}
-    #     {{- end }}
+    task "anyone-dns-stage-relay-task" {
+      driver = "docker"
 
-    #     # ORPort {{ env `NOMAD_HOST_PORT_relayor` }} IPv4Only
-    #     ORPort 9222 IPv4Only
-    #     DataDirectory /var/lib/anon
-    #     HiddenServiceDir /var/lib/anon/anyone-dns
-    #     HiddenServicePort 80 {{ env `NOMAD_ADDR_http` }}
+      config {
+        image = "ghcr.io/anyone-protocol/ator-protocol-dev-amd64:latest-pr"
+        force_pull = true
+        volumes = [
+          "local/anonrc:/etc/anon/anonrc",
+          "secrets/hidden-service:/var/lib/anon/anyone-dns"
+        ]
+        # network_mode = "host"
+        ports = ["relayor"]
+      }
 
-    #     SocksPort 0
-    #     ControlSocket 0
+      template {
+        change_mode = "noop"
+        data = <<-EOF
+        User anond
+        Nickname AnyoneDNSStage
+        AgreeToTerms 1
 
-    #     ## TODO ##
-    #     # SafeLogging 1
-    #     # UseEntryGuards 0
-    #     # ProtocolWarnings 1
-    #     # FetchDirInfoEarly 1
-    #     # LogTimeGranularity 1
-    #     # UseMicrodescriptors 0
-    #     # FetchDirInfoExtraEarly 1
-    #     # FetchUselessDescriptors 1
-    #     # LearnCircuitBuildTimeout 0
-    #     EOF
-    #     destination = "local/anonrc"
-    #   }
+        # # TODO -> move this to consul
+        # {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        # Address {{ .Data.data.RELAY_IPV4_STAGE }}
+        # {{- end }}
 
-    #   vault { role = "any1-nomad-workloads-controller" }
+        # ORPort {{ env `NOMAD_HOST_PORT_relayor` }} IPv4Only
+        # ORPort 9222 IPv4Only
+        ORPort 0
+        DataDirectory /var/lib/anon
+        HiddenServiceDir /var/lib/anon/anyone-dns
+        HiddenServicePort 80 {{ env `NOMAD_ADDR_http` }}
 
-    #   # TODO -> other keys
+        SocksPort 0
+        ControlSocket 0
 
-    #   template {
-    #     data = <<-EOF
-    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
-    #     {{ .Data.data.ANON_0_HS_HOSTNAME }}
-    #     {{- end }}
-    #     EOF
-    #     destination = "/secrets/hidden-service/hostname"
-    #   }
+        ## TODO ##
+        # SafeLogging 1
+        # UseEntryGuards 0
+        # ProtocolWarnings 1
+        # FetchDirInfoEarly 1
+        # LogTimeGranularity 1
+        # UseMicrodescriptors 0
+        # FetchDirInfoExtraEarly 1
+        # FetchUselessDescriptors 1
+        # LearnCircuitBuildTimeout 0
+        EOF
+        destination = "local/anonrc"
+      }
 
-    #   template {
-    #     data = <<-EOF
-    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
-    #     {{ base64Decode .Data.data.ANON_0_HS_ED25519_PUBLIC_KEY_BASE64 }}
-    #     {{- end }}
-    #     EOF
-    #     destination = "/secrets/hidden-service/hs_ed25519_public_key"
-    #   }
+      vault { role = "any1-nomad-workloads-controller" }
 
-    #   template {
-    #     data = <<-EOF
-    #     {{- with secret "kv/stage-services/anyone-dns-stage" }}
-    #     {{ base64Decode .Data.data.ANON_0_HS_ED25519_SECRET_KEY_BASE64 }}
-    #     {{- end }}
-    #     EOF
-    #     destination = "/secrets/hidden-service/hs_ed25519_secret_key"
-    #   }
+      # TODO -> other keys
 
-    #   resources {
-    #     cpu = 512
-    #     memory = 512
-    #   }
-    # }
+      template {
+        change_mode = "noop"
+        data = <<-EOF
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{ .Data.data.ANON_0_HS_HOSTNAME }}
+        {{- end }}
+        EOF
+        destination = "/secrets/hidden-service/hostname"
+      }
+
+      template {
+        change_mode = "noop"
+        data = <<-EOF
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{ base64Decode .Data.data.ANON_0_HS_ED25519_PUBLIC_KEY_BASE64 }}
+        {{- end }}
+        EOF
+        destination = "/secrets/hidden-service/hs_ed25519_public_key"
+      }
+
+      template {
+        change_mode = "noop"
+        data = <<-EOF
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{ base64Decode .Data.data.ANON_0_HS_ED25519_SECRET_KEY_BASE64 }}
+        {{- end }}
+        EOF
+        destination = "/secrets/hidden-service/hs_ed25519_secret_key"
+      }
+
+      resources {
+        cpu = 1024
+        memory = 1024
+      }
+
+      # service {
+      #   name = "dns-service-relay-stage"
+      #   port = "relayor"
+      #   tags     = ["logging"]
+      #   check {
+      #     name     = "dns-service-relay-stage check"
+      #     type     = "tcp"
+      #     interval = "10s"
+      #     timeout  = "10s"
+      #     check_restart {
+      #       limit = 10
+      #       grace = "30s"
+      #     }
+      #   }
+      # }
+    }
   }
 }

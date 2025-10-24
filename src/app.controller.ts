@@ -3,7 +3,6 @@ import { Controller, Get, NotFoundException, Param } from '@nestjs/common'
 import { AppService } from './app.service'
 import { UnsService } from './uns/uns.service'
 import { hsUtils } from './util/hidden-service-utils'
-import { DomainResolutionResult } from './uns/schema/domain-resolution-result'
 
 @Controller()
 export class AppController {
