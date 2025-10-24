@@ -16,6 +16,12 @@ job "anyone-dns-stage" {
       port "http" {
         host_network = "wireguard"
       }
+      port "relaycontrol" {
+        host_network = "wireguard"
+      }
+      port "relayor" {
+        static = 443 # TODO ???
+      }
     }
 
     task "anyone-dns-stage-task" {
@@ -73,6 +79,77 @@ job "anyone-dns-stage" {
           limit = 10
           grace = "30s"
         }
+      }
+    }
+
+    task "anyone-dns-stage-relay-task" {
+      driver = "docker"
+
+      config {
+        image = "ghcr.io/anyone-protocol/ator-protocol-dev-amd64:latest-pr"
+        force_pull = true
+        volumes = [ "local/anonrc:/etc/anon/anonrc" ]
+      }
+
+      template {
+        data = <<-EOF
+        User anond
+        Nickname AnyoneDNSStage
+        AgreeToTerms 1
+
+        ControlPort {{ env `NOMAD_PORT_relaycontrol_port` }}
+        ORPort {{ env `NOMAD_PORT_relayor` }} IPv4Only
+        DataDirectory /var/lib/anon
+        HiddenServiceDir /var/lib/anon/anyone-dns
+        HiddenServicePort 443 127.0.0.1:{{ env `NOMAD_PORT_http` }}
+
+        ## TODO ??? ##
+        SocksPort auto
+        SafeLogging 1
+        UseEntryGuards 0
+        ProtocolWarnings 1
+        FetchDirInfoEarly 1
+        LogTimeGranularity 1
+        UseMicrodescriptors 0
+        FetchDirInfoExtraEarly 1
+        FetchUselessDescriptors 1
+        LearnCircuitBuildTimeout 0
+        EOF
+        destination = "local/anonrc"
+      }
+
+      vault { role = "any1-nomad-workloads-controller" }
+
+      template {
+        data = <<-EOF
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{ .Data.data.ANON_0_HS_HOSTNAME }}
+        {{- end }}
+        EOF
+        destination = "/secrets/hidden-service/hostname"
+      }
+
+      template {
+        data = <<-EOF
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{ base64Decode .Data.data.ANON_0_HS_ED25519_PUBLIC_KEY_BASE64 }}
+        {{- end }}
+        EOF
+        destination = "/secrets/hidden-service/hs_ed25519_public_key"
+      }
+
+      template {
+        data = <<-EOF
+        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{ base64Decode .Data.data.ANON_0_HS_ED25519_SECRET_KEY_BASE64 }}
+        {{- end }}
+        EOF
+        destination = "/secrets/hidden-service/hs_ed25519_secret_key"
+      }
+
+      resources {
+        cpu = 1024
+        memory = 1024
       }
     }
   }
