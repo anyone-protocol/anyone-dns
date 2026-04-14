@@ -44,6 +44,8 @@ job "anyone-dns-stage" {
         ANYONE_API_BASE_URL="https://api-stage.ec.anyone.tech"
       }
 
+      consul {}
+
       vault { role = "any1-nomad-workloads-controller" }
 
       template {
