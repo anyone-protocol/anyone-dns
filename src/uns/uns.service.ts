@@ -318,6 +318,6 @@ export class UnsService implements OnApplicationBootstrap {
   }
 
   async getDomain(domain: string): Promise<DomainResolutionResult | null> {
-    return this.mappingsCache[domain] || null
+    return this.mappingsCache[domain] || this.defaultMappings[domain] || null
   }
 }
