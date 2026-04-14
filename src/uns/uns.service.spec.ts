@@ -2,6 +2,9 @@ import { ConsoleLogger } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { ScheduleModule } from '@nestjs/schedule'
 import { Test, TestingModule } from '@nestjs/testing'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 import { UnsService } from './uns.service'
 import {
@@ -301,6 +304,165 @@ describe('UnsService', () => {
       
       const hosts = await unsService.getHostsList()
       expect(hosts).toEqual('')
+    })
+  })
+
+  describe('default mappings', () => {
+    const defaultMappingsHosts = [
+      'dns-live-1.anyone.anyone gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone',
+      'dns-live-2.anyone.anyone kjlkfrfxquevo64qv4gssl3t52tiuay2muj7u4rox4llxboj4c4ypcid.anyone'
+    ].join('\n')
+
+    let unsServiceWithDefaults: UnsService
+    let tmpFile: string
+
+    beforeEach(async () => {
+      tmpFile = path.join(os.tmpdir(), `default-mappings-${Date.now()}`)
+      fs.writeFileSync(tmpFile, defaultMappingsHosts)
+      process.env.DEFAULT_MAPPINGS_PATH = tmpFile
+
+      const app: TestingModule = await Test.createTestingModule(
+        {
+          imports: [
+            ConfigModule.forRoot({ isGlobal: true }),
+            ScheduleModule.forRoot()
+          ],
+          controllers: [],
+          providers: [ UnsService ]
+        }
+      )
+      .setLogger(
+        new ConsoleLogger({
+          logLevels: []
+        })
+      )
+      .compile()
+
+      unsServiceWithDefaults = app.get<UnsService>(UnsService)
+
+      global.fetch = jest.fn()
+    })
+
+    afterEach(() => {
+      delete process.env.DEFAULT_MAPPINGS
+      jest.restoreAllMocks()
+    })
+
+    it('includes default mappings in hosts list after refreshCache with empty API', async () => {
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue([])
+      }
+      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      await unsServiceWithDefaults.refreshCache()
+
+      const hosts = await unsServiceWithDefaults.getHostsList()
+      expect(hosts).toContain('dns-live-1.anyone.anyone gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone')
+      expect(hosts).toContain('dns-live-2.anyone.anyone kjlkfrfxquevo64qv4gssl3t52tiuay2muj7u4rox4llxboj4c4ypcid.anyone')
+    })
+
+    it('default mappings override conflicting API results', async () => {
+      const mockDomains = [{ name: 'dns-live-1.anyone.anyone' }]
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue(mockDomains)
+      }
+      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      // API resolves to a different address
+      jest.spyOn(unsServiceWithDefaults, 'resolveDomainToHiddenServiceAddress')
+        .mockResolvedValue('different1234567890abcdef1234567890abcdef1234567890abcdefgh.anyone')
+
+      await unsServiceWithDefaults.refreshCache()
+
+      const result = await unsServiceWithDefaults.getDomain('dns-live-1.anyone.anyone')
+      expect(result).toEqual({
+        result: 'success',
+        domain: 'dns-live-1.anyone.anyone',
+        hiddenServiceAddress: 'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone'
+      })
+    })
+
+    it('default mappings are available via getDomain', async () => {
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue([])
+      }
+      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      await unsServiceWithDefaults.refreshCache()
+
+      const result = await unsServiceWithDefaults.getDomain('dns-live-1.anyone.anyone')
+      expect(result).toEqual({
+        result: 'success',
+        domain: 'dns-live-1.anyone.anyone',
+        hiddenServiceAddress: 'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone'
+      })
+    })
+
+    it('default mappings survive API errors', async () => {
+      ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'))
+
+      await unsServiceWithDefaults.refreshCache()
+
+      const hosts = await unsServiceWithDefaults.getHostsList()
+      expect(hosts).toContain('dns-live-1.anyone.anyone gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone')
+    })
+  })
+
+  describe('default mappings edge cases', () => {
+    afterEach(() => {
+      delete process.env.DEFAULT_MAPPINGS_PATH
+      jest.restoreAllMocks()
+    })
+
+    it('starts without error when DEFAULT_MAPPINGS_PATH is not set', async () => {
+      delete process.env.DEFAULT_MAPPINGS_PATH
+
+      const app: TestingModule = await Test.createTestingModule(
+        {
+          imports: [
+            ConfigModule.forRoot({ isGlobal: true }),
+            ScheduleModule.forRoot()
+          ],
+          controllers: [],
+          providers: [ UnsService ]
+        }
+      )
+      .setLogger(
+        new ConsoleLogger({
+          logLevels: []
+        })
+      )
+      .compile()
+
+      const svc = app.get<UnsService>(UnsService)
+      expect(svc).toBeDefined()
+    })
+
+    it('starts without error when DEFAULT_MAPPINGS_PATH points to missing file', async () => {
+      process.env.DEFAULT_MAPPINGS_PATH = '/nonexistent/path/default-mappings'
+
+      const app: TestingModule = await Test.createTestingModule(
+        {
+          imports: [
+            ConfigModule.forRoot({ isGlobal: true }),
+            ScheduleModule.forRoot()
+          ],
+          controllers: [],
+          providers: [ UnsService ]
+        }
+      )
+      .setLogger(
+        new ConsoleLogger({
+          logLevels: []
+        })
+      )
+      .compile()
+
+      const svc = app.get<UnsService>(UnsService)
+      expect(svc).toBeDefined()
     })
   })
 })

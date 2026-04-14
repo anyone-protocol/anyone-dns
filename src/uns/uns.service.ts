@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { SchedulerRegistry } from '@nestjs/schedule'
 import { ethers } from 'ethers'
+import * as fs from 'fs'
 
 import {
   DomainResolutionResult
@@ -32,6 +33,7 @@ export class UnsService implements OnApplicationBootstrap {
   private readonly unsProxyReaderContract: ethers.Contract
   private readonly anyoneApiBaseUrl: string
   private readonly cacheTtlMs: number
+  private readonly defaultMappings: Record<string, string>
   private domainsCache: string[] | null = null
   private mappingsCache: { [key: string]: DomainResolutionResult } = {}
   private hostsListCache: string = ''
@@ -40,7 +42,8 @@ export class UnsService implements OnApplicationBootstrap {
     private readonly config: ConfigService<{
       JSON_RPC_URL: string,
       ANYONE_API_BASE_URL: string,
-      ANYONE_DOMAINS_CACHE_TTL_MS: string
+      ANYONE_DOMAINS_CACHE_TTL_MS: string,
+      DEFAULT_MAPPINGS_PATH: string
     }>,
     private readonly schedulerRegistry: SchedulerRegistry
   ) {
@@ -70,6 +73,40 @@ export class UnsService implements OnApplicationBootstrap {
       )
     }
 
+    const defaultMappingsPath = this.config.get<string>(
+      'DEFAULT_MAPPINGS_PATH',
+      '',
+      { infer: true }
+    )
+    this.defaultMappings = {}
+    if (defaultMappingsPath) {
+      try {
+        const content = fs.readFileSync(defaultMappingsPath, 'utf-8')
+        const lines = content.split('\n').filter(l => l.trim())
+        for (const line of lines) {
+          const [domain, address] = line.trim().split(/\s+/)
+          if (domain && address) {
+            this.defaultMappings[domain] = address
+          } else {
+            this.logger.warn(
+              `Skipping invalid default mappings line: ${line}`
+            )
+          }
+        }
+        if (Object.keys(this.defaultMappings).length > 0) {
+          this.logger.log(
+            `Loaded ${Object.keys(this.defaultMappings).length} default`
+              + ` mappings from ${defaultMappingsPath}`
+          )
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `Failed to read default mappings from`
+            + ` ${defaultMappingsPath}: ${e.message}`
+        )
+      }
+    }
+
     this.provider = new ethers.JsonRpcProvider(jsonRpcUrl)
     this.unsProxyReaderContract = new ethers.Contract(
       UNS_REGISTRY_PROXY_READER_ADDRESS,
@@ -79,6 +116,7 @@ export class UnsService implements OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap() {
+    this.applyDefaultMappings()
     await this.enqueueCacheRefresh()
   }
 
@@ -155,7 +193,35 @@ export class UnsService implements OnApplicationBootstrap {
       )
     } catch (error: any) {
       this.logger.error('Error refreshing cache:', error)
+    } finally {
+      this.applyDefaultMappings()
     }
+  }
+
+  private applyDefaultMappings() {
+    const defaultDomains = Object.keys(this.defaultMappings)
+    if (defaultDomains.length === 0) {
+      return
+    }
+
+    for (const [domain, hiddenServiceAddress] of Object.entries(this.defaultMappings)) {
+      this.mappingsCache[domain] = {
+        result: 'success',
+        domain,
+        hiddenServiceAddress
+      }
+    }
+
+    // Regenerate hostsListCache from all successful mappings
+    this.hostsListCache = Object.values(this.mappingsCache)
+      .filter(res => res.result === 'success')
+      .map(mapping => `${mapping.domain} ${mapping.hiddenServiceAddress}`)
+      .join('\n')
+      .trim()
+
+    this.logger.log(
+      `Applied ${defaultDomains.length} default mappings`
+    )
   }
 
   async resolveDomainToHiddenServiceAddress(
