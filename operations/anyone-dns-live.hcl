@@ -1,11 +1,11 @@
-job "anyone-dns-stage" {
+job "anyone-dns-live" {
   datacenters = ["ator-fin"]
   type = "service"
-  namespace = "stage-services"
+  namespace = "live-services"
 
   constraint {
     attribute = "${meta.pool}"
-    value = "stage"
+    value = "live-services"
   }
 
   update {
@@ -17,7 +17,7 @@ job "anyone-dns-stage" {
     auto_promote     = true
   }
 
-  group "anyone-dns-stage-group" {
+  group "anyone-dns-live-group" {
     count = 1
 
     network {
@@ -30,7 +30,7 @@ job "anyone-dns-stage" {
       }
     }
 
-    task "anyone-dns-stage-task" {
+    task "anyone-dns-live-task" {
       driver = "docker"
 
       config {
@@ -41,16 +41,14 @@ job "anyone-dns-stage" {
       env {
         VERSION = "[[ .commit_sha ]]"
         PORT="${NOMAD_PORT_dnsport}"
-        ANYONE_API_BASE_URL="https://api-stage.ec.anyone.tech"
+        ANYONE_API_BASE_URL="https://api-live.ec.anyone.tech"
       }
-
-      consul {}
 
       vault { role = "any1-nomad-workloads-controller" }
 
       template {
         data = <<-EOF
-        {{- with secret "kv/stage-services/anyone-dns-stage" }}
+        {{- with secret "kv/live-services/anyone-dns-live" }}
         JSON_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_1 }}"
         {{- end }}
         EOF
@@ -64,7 +62,7 @@ job "anyone-dns-stage" {
       }
     }
 
-    task "anyone-dns-stage-relay-task" {
+    task "anyone-dns-live-relay-task" {
       driver = "docker"
 
       config {
@@ -80,7 +78,7 @@ job "anyone-dns-stage" {
         change_mode = "noop"
         data = <<-EOF
         User anond
-        Nickname AnyoneDNSStage
+        Nickname AnyoneDNSLive
         AgreeToTerms 1
         SocksPort 0
         HiddenServiceDir /var/lib/anon/anyone-dns
@@ -92,23 +90,25 @@ job "anyone-dns-stage" {
         destination = "local/anonrc"
       }
 
+      consul {}
+
       vault { role = "any1-nomad-workloads-controller" }
 
       template {
         change_mode = "noop"
-        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ .Data.data.ANYONE_1_HS_HOSTNAME }}{{- end }}"
+        data = "{{- with secret `kv/live-services/anyone-dns-live` }}{{ .Data.data.ANYONE_1_HS_HOSTNAME }}{{- end }}"
         destination = "/secrets/hidden-service/hostname"
       }
 
       template {
         change_mode = "noop"
-        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ base64Decode .Data.data.ANYONE_1_HS_ED25519_PUBLIC_KEY_BASE64 }}{{- end }}"
+        data = "{{- with secret `kv/live-services/anyone-dns-live` }}{{ base64Decode .Data.data.ANYONE_1_HS_ED25519_PUBLIC_KEY_BASE64 }}{{- end }}"
         destination = "/secrets/hidden-service/hs_ed25519_public_key"
       }
 
       template {
         change_mode = "noop"
-        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ base64Decode .Data.data.ANYONE_1_HS_ED25519_SECRET_KEY_BASE64 }}{{- end }}"
+        data = "{{- with secret `kv/live-services/anyone-dns-live` }}{{ base64Decode .Data.data.ANYONE_1_HS_ED25519_SECRET_KEY_BASE64 }}{{- end }}"
         destination = "/secrets/hidden-service/hs_ed25519_secret_key"
       }
 
@@ -119,20 +119,20 @@ job "anyone-dns-stage" {
     }
 
     service {
-      name = "dns-service-stage"
+      name = "dns-service-live"
       port = "dnsport"
       tags = [
         "logging",
         "traefik-ec.enable=true",
-        "traefik-ec.http.routers.dns-stage.rule=Host(`dns-stage.ec.anyone.tech`)",
-        "traefik-ec.http.routers.dns-stage.entrypoints=https",
-        "traefik-ec.http.routers.dns-stage.tls=true",
-        "traefik-ec.http.routers.dns-stage.tls.certresolver=anyoneresolver",
-        "traefik-ec.http.routers.dns-stage.middlewares=dns-stage-ratelimit",
-        "traefik-ec.http.middlewares.dns-stage-ratelimit.ratelimit.average=100"
+        "traefik-ec.http.routers.dns-live.rule=Host(`dns-live.ec.anyone.tech`)",
+        "traefik-ec.http.routers.dns-live.entrypoints=https",
+        "traefik-ec.http.routers.dns-live.tls=true",
+        "traefik-ec.http.routers.dns-live.tls.certresolver=anyoneresolver",
+        "traefik-ec.http.routers.dns-live.middlewares=dns-live-ratelimit",
+        "traefik-ec.http.middlewares.dns-live-ratelimit.ratelimit.average=100"
       ]
       check {
-        name = "Anyone DNS stage service check"
+        name = "Anyone DNS live service check"
         type = "http"
         path = "/"
         interval = "10s"
