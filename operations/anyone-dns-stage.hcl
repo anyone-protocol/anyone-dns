@@ -42,8 +42,7 @@ job "anyone-dns-stage" {
       }
 
       env {
-        # VERSION = "[[ .commit_sha ]]"
-        VERSION="0e79e7639d7df88bc32f870dff00086482ef5f3c" # TODO -> remove after dev
+        VERSION = "[[ .commit_sha ]]"
         PORT="${NOMAD_PORT_dnsport}"
         ANYONE_API_BASE_URL="https://api-stage.ec.anyone.tech"
       }
