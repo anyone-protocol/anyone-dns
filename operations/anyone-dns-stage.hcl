@@ -58,6 +58,8 @@ job "anyone-dns-stage" {
         data = <<-EOF
         {{- with secret "kv/stage-services/anyone-dns-stage" }}
         JSON_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_1 }}"
+        HIDDEN_SERVICE_HOSTNAME="{{ .Data.data.ANYONE_DNS_1_HS_HOSTNAME }}"
+        HIDDEN_SERVICE_PUBLIC_KEY="{{ .Data.data.ANYONE_DNS_1_HS_ED25519_PUBLIC_KEY_BASE64 }}"
         {{- end }}
         EOF
         destination = "secrets/config.env"

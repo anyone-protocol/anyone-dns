@@ -56,6 +56,8 @@ job "anyone-dns-live" {
         data = <<-EOF
         {{- with secret "kv/live-services/anyone-dns-live" }}
         JSON_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_1 }}"
+        HIDDEN_SERVICE_HOSTNAME="{{ .Data.data.ANYONE_DNS_1_HS_HOSTNAME }}"
+        HIDDEN_SERVICE_PUBLIC_KEY="{{ .Data.data.ANYONE_DNS_1_HS_ED25519_PUBLIC_KEY_BASE64 }}"
         {{- end }}
         EOF
         destination = "secrets/config.env"

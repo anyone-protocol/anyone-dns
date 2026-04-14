@@ -39,8 +39,14 @@ describe('AppController', () => {
 
   describe('root', () => {
     it('should return the versioned healthcheck string', () => {
+      const version = process.env.VERSION || 'unknown'
+      const hostname = process.env.HIDDEN_SERVICE_HOSTNAME || 'unknown'
+      const publicKeyBase64 = process.env.HIDDEN_SERVICE_PUBLIC_KEY
+      const publicKey = publicKeyBase64
+        ? Buffer.from(publicKeyBase64, 'base64').toString('hex').toUpperCase()
+        : 'unknown'
       expect(appController.getHealthcheck())
-        .toBe(`Anyone DNS Service version ${process.env.VERSION || 'unknown'}`)
+        .toBe(`Anyone DNS Service version ${version}\nHostname: ${hostname}\nPublic Key: ${publicKey}`)
     })
   })
 
@@ -77,7 +83,7 @@ describe('AppController', () => {
       
       const result = await appController.getAnyoneDomain(mockDomainName)
 
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(mockDomainName)
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
       expect(result).toBe('example.anyone 6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone')
     })
 
@@ -94,7 +100,7 @@ describe('AppController', () => {
       
       const result = await appController.getAnyoneDomain(mockDomainName)
       
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(mockDomainName)
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
       expect(result).toBe('Domain resolution failed')
     })
 
@@ -104,7 +110,7 @@ describe('AppController', () => {
       jest.spyOn(appController['unsService'], 'getDomain').mockResolvedValue(null)
       
       await expect(appController.getAnyoneDomain(mockDomainName)).rejects.toThrow('Domain not found')
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(mockDomainName)
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
     })
 
     it('should throw NotFoundException when domain is not found (undefined result)', async () => {
@@ -113,7 +119,7 @@ describe('AppController', () => {
       jest.spyOn(appController['unsService'], 'getDomain').mockResolvedValue(null)
       
       await expect(appController.getAnyoneDomain(mockDomainName)).rejects.toThrow('Domain not found')
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(mockDomainName)
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
     })
 
     afterEach(() => {
