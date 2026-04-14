@@ -3,25 +3,22 @@ job "anyone-dns-stage" {
   type = "service"
   namespace = "stage-services"
 
-  ## TODO -> Configure after development testing is complete
-  reschedule { attempts = 0 }
-
-  ## TODO -> Canary deployment
-
-  ## NB: Needs public ip in anonrc for hidden service
   constraint {
-    attribute = "${node.unique.id}"
-    value = "2adb1799-9284-b274-ecf9-29218986ff16" # any1-hel-stage-1
+    attribute = "${meta.pool}"
+    value = "stage"
+  }
+
+  update {
+    max_parallel     = 1
+    canary           = 1
+    min_healthy_time = "30s" # NB: May need to adjust this depending on relay bootstrapping time
+    healthy_deadline = "5m"  # NB: May need to adjust this depending on relay bootstrapping time
+    auto_revert      = true
+    auto_promote     = true
   }
 
   group "anyone-dns-stage-group" {
     count = 1
-
-    ## TODO -> Configure after development testing is complete
-    restart {
-      attempts = 0
-      mode     = "fail"
-    }
 
     network {
       mode = "bridge"
