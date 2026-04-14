@@ -111,19 +111,19 @@ job "anyone-dns-stage" {
 
       template {
         change_mode = "noop"
-        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ .Data.data.ANYONE_1_HS_HOSTNAME }}{{- end }}"
+        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ .Data.data.ANYONE_DNS_1_HS_HOSTNAME }}{{- end }}"
         destination = "/secrets/hidden-service/hostname"
       }
 
       template {
         change_mode = "noop"
-        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ base64Decode .Data.data.ANYONE_1_HS_ED25519_PUBLIC_KEY_BASE64 }}{{- end }}"
+        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ base64Decode .Data.data.ANYONE_DNS_1_HS_ED25519_PUBLIC_KEY_BASE64 }}{{- end }}"
         destination = "/secrets/hidden-service/hs_ed25519_public_key"
       }
 
       template {
         change_mode = "noop"
-        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ base64Decode .Data.data.ANYONE_1_HS_ED25519_SECRET_KEY_BASE64 }}{{- end }}"
+        data = "{{- with secret `kv/stage-services/anyone-dns-stage` }}{{ base64Decode .Data.data.ANYONE_DNS_1_HS_ED25519_SECRET_KEY_BASE64 }}{{- end }}"
         destination = "/secrets/hidden-service/hs_ed25519_secret_key"
       }
 
