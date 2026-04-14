@@ -8,15 +8,6 @@ job "anyone-dns-live" {
     value = "live-services"
   }
 
-  update {
-    max_parallel     = 1
-    canary           = 1
-    min_healthy_time = "30s" # NB: May need to adjust this depending on relay bootstrapping time
-    healthy_deadline = "5m"  # NB: May need to adjust this depending on relay bootstrapping time
-    auto_revert      = true
-    auto_promote     = true
-  }
-
   group "anyone-dns-live-group" {
     count = 1
 
