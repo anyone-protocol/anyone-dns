@@ -88,7 +88,7 @@ export class UnsService implements OnApplicationBootstrap {
     try {
       this.schedulerRegistry.getTimeout('enqueueCacheRefresh') &&
         this.schedulerRegistry.deleteTimeout('enqueueCacheRefresh')
-    } catch (e) {}
+    } catch (e: any) {}
 
     this.schedulerRegistry.addTimeout(
       'enqueueCacheRefresh',
@@ -153,7 +153,7 @@ export class UnsService implements OnApplicationBootstrap {
         `Successfully refreshed cache for [${results.length}] domains with ` +
           `[${successfulResults.length}] hidden service addresses`
       )
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('Error refreshing cache:', error)
     }
   }
@@ -199,7 +199,7 @@ export class UnsService implements OnApplicationBootstrap {
       }
 
       return hsAddress
-    } catch (error) {
+    } catch (error: any) {
       const errorMessage =
         `Error fetching records from UNS Registry for domain ${domain}`
       this.logger.error(errorMessage, error.stack)

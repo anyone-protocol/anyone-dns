@@ -38,7 +38,7 @@ export const hsUtils = {
         .slice(0, 4)
 
       return checksum === expectedChecksum
-    } catch (e) { return false }
+    } catch (e: any) { return false }
   },
 
   formatHostsFileEntry(domain: string, hiddenServiceAddress: string) {

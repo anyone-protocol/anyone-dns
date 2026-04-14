@@ -20,7 +20,7 @@ export class AppController {
   async getAnyoneDomains() {
     try {
       return await this.unsService.getHostsList()
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(
         `Failed get hosts list: ${error.message}`
       )
