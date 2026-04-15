@@ -4,8 +4,10 @@ job "anyone-dns-live" {
   namespace = "live-services"
 
   constraint {
-    attribute = "${meta.pool}"
-    value = "live-services"
+    # attribute = "${meta.pool}"
+    # value = "live-services"
+    attribute = "${node.unique.id}"
+    value = "ababa2ce-7129-d4b9-f9c4-b0e6f9d80f7f"
   }
 
   group "anyone-dns-live-group" {
@@ -132,7 +134,7 @@ job "anyone-dns-live" {
       tags = [
         "logging",
         "traefik-ec.enable=true",
-        "traefik-ec.http.routers.dns-live.rule=Host(`dns-live.ec.anyone.tech`)",
+        "traefik-ec.http.routers.dns-live.rule=Host(`dns.ec.anyone.tech`)",
         "traefik-ec.http.routers.dns-live.entrypoints=https",
         "traefik-ec.http.routers.dns-live.tls=true",
         "traefik-ec.http.routers.dns-live.tls.certresolver=anyoneresolver",
