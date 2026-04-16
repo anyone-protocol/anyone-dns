@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common'
+import { Controller, Get, Header, NotFoundException, Param } from '@nestjs/common'
 
 import { AppService } from './app.service'
 import { UnsService } from './uns/uns.service'
@@ -12,11 +12,13 @@ export class AppController {
   ) {}
 
   @Get()
+  @Header('Content-Type', 'text/plain')
   getHealthcheck(): string {
     return this.appService.getHealthcheck()
   }
 
   @Get('tld/anyone')
+  @Header('Content-Type', 'text/plain')
   async getAnyoneDomains() {
     try {
       return await this.unsService.getHostsList()
@@ -28,6 +30,7 @@ export class AppController {
   }
 
   @Get('tld/anyone/:name')
+  @Header('Content-Type', 'text/plain')
   async getAnyoneDomain(@Param('name') name: string) {
     const result = await this.unsService.getDomain(`${name}.anyone`)
 
