@@ -35,7 +35,7 @@ job "anyone-dns-live" {
       env {
         VERSION = "[[ .commit_sha ]]"
         PORT="${NOMAD_PORT_dnsport}"
-        ANYONE_API_BASE_URL="https://api-live.ec.anyone.tech"
+        ANYONE_API_BASE_URL="https://api.ec.anyone.tech"
         DEFAULT_MAPPINGS_PATH="/usr/src/app/default-anyone-hosts"
       }
 
