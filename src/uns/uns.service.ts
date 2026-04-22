@@ -1,118 +1,79 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { SchedulerRegistry } from '@nestjs/schedule'
-import { ethers } from 'ethers'
+import { InjectRepository } from '@nestjs/typeorm'
 import * as fs from 'fs'
+import { IsNull, Not, Repository } from 'typeorm'
 
-import {
-  DomainResolutionResult
-} from './schema/domain-resolution-result'
-import {
-  UNS_REGISTRY_PROXY_READER_ABI,
-  UNS_REGISTRY_PROXY_READER_ADDRESS
-} from './schema/uns-registry-proxy-reader.contract'
+import { HiddenServiceRecordEntity } from '../db/entities/hidden-service-record.entity'
 import { hsUtils } from '../util/hidden-service-utils'
 import { DomainResolutionError } from './errors/domain-resolution.error'
+import { HiddenServiceAddressInvalidError } from './errors/hidden-service-address-invalid.error'
+import { UnsupportedHiddenServiceTldError } from './errors/unsupported-hidden-service-tld.error'
 import { UnsupportedUnsTldError } from './errors/unsupported-uns-tld.error'
-import {
-  HiddenServiceRecordNotFoundError
-} from './errors/hidden-service-record-not-found.error'
-import {
-  UnsupportedHiddenServiceTldError
-} from './errors/unsupported-hidden-service-tld.error'
-import {
-  HiddenServiceAddressInvalidError
-} from './errors/hidden-service-address-invalid.error'
+import { DomainResolutionResult } from './schema/domain-resolution-result'
 
 @Injectable()
 export class UnsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(UnsService.name)
   private readonly SUPPORTED_TLDS = ['anyone']
-  private readonly UNS_STORAGE_KEYS = [ 'token.ANYONE.ANYONE.ANYONE.address' ]
-  private readonly provider: ethers.JsonRpcProvider
-  private readonly unsProxyReaderContract: ethers.Contract
-  private readonly anyoneApiBaseUrl: string
   private readonly cacheTtlMs: number
   private readonly defaultMappings: Record<string, string>
-  private domainsCache: string[] | null = null
   private mappingsCache: { [key: string]: DomainResolutionResult } = {}
   private hostsListCache: string = ''
 
   constructor(
     private readonly config: ConfigService<{
-      JSON_RPC_URL: string,
-      ANYONE_API_BASE_URL: string,
-      ANYONE_DOMAINS_CACHE_TTL_MS: string,
+      ANYONE_DOMAINS_CACHE_TTL_MS: string
       DEFAULT_MAPPINGS_PATH: string
     }>,
-    private readonly schedulerRegistry: SchedulerRegistry
+    private readonly schedulerRegistry: SchedulerRegistry,
+    @InjectRepository(HiddenServiceRecordEntity)
+    private readonly hsRecords: Repository<HiddenServiceRecordEntity>,
   ) {
-    const jsonRpcUrl = this.config.get<string>('JSON_RPC_URL', { infer: true })
-    if (!jsonRpcUrl) {
-      throw new Error('JSON_RPC_URL is not set!')
-    }
-
-    this.anyoneApiBaseUrl = this.config.get<string>(
-      'ANYONE_API_BASE_URL',
-      '',
-      { infer: true }
-    )
-    if (!this.anyoneApiBaseUrl) {
-      throw new Error('ANYONE_API_BASE_URL is not set!')
-    }
-
     const cacheTtlConfig = this.config.get<string>(
       'ANYONE_DOMAINS_CACHE_TTL_MS',
       '300000',
-      { infer: true }
+      { infer: true },
     )
     this.cacheTtlMs = parseInt(cacheTtlConfig, 10)
     if (isNaN(this.cacheTtlMs) || this.cacheTtlMs < 0) {
       throw new Error(
-        'ANYONE_DOMAINS_CACHE_TTL_MS must be a valid positive number!'
+        'ANYONE_DOMAINS_CACHE_TTL_MS must be a valid positive number!',
       )
     }
 
     const defaultMappingsPath = this.config.get<string>(
       'DEFAULT_MAPPINGS_PATH',
       '',
-      { infer: true }
+      { infer: true },
     )
     this.defaultMappings = {}
     if (defaultMappingsPath) {
       try {
         const content = fs.readFileSync(defaultMappingsPath, 'utf-8')
-        const lines = content.split('\n').filter(l => l.trim())
+        const lines = content.split('\n').filter((l) => l.trim())
         for (const line of lines) {
           const [domain, address] = line.trim().split(/\s+/)
           if (domain && address) {
             this.defaultMappings[domain] = address
           } else {
-            this.logger.warn(
-              `Skipping invalid default mappings line: ${line}`
-            )
+            this.logger.warn(`Skipping invalid default mappings line: ${line}`)
           }
         }
         if (Object.keys(this.defaultMappings).length > 0) {
           this.logger.log(
-            `Loaded ${Object.keys(this.defaultMappings).length} default`
-              + ` mappings from ${defaultMappingsPath}`
+            `Loaded ${Object.keys(this.defaultMappings).length} default` +
+              ` mappings from ${defaultMappingsPath}`,
           )
         }
       } catch (e: any) {
         this.logger.warn(
-          `Failed to read default mappings from`
-            + ` ${defaultMappingsPath}: ${e.message}`
+          `Failed to read default mappings from` +
+            ` ${defaultMappingsPath}: ${e.message}`,
         )
       }
     }
-
-    this.provider = new ethers.JsonRpcProvider(jsonRpcUrl)
-    this.unsProxyReaderContract = new ethers.Contract(
-      UNS_REGISTRY_PROXY_READER_ADDRESS,
-      UNS_REGISTRY_PROXY_READER_ABI,
-      this.provider
-    )
   }
 
   async onApplicationBootstrap() {
@@ -130,72 +91,89 @@ export class UnsService implements OnApplicationBootstrap {
 
     this.schedulerRegistry.addTimeout(
       'enqueueCacheRefresh',
-      setTimeout(
-        this.enqueueCacheRefresh.bind(this),
-        this.cacheTtlMs
-      )
+      setTimeout(this.enqueueCacheRefresh.bind(this), this.cacheTtlMs),
     )
     this.logger.log(
-      `Scheduled next cache refresh with TTL ${this.cacheTtlMs} ms`
+      `Scheduled next cache refresh with TTL ${this.cacheTtlMs} ms`,
     )
   }
 
   async refreshCache() {
     this.logger.log('Refreshing anyone domains cache')
-    
+
     try {
-      // Fetch fresh domains list
-      this.logger.debug('Fetching fresh anyone domains list from API')
-      const response = await fetch(`${this.anyoneApiBaseUrl}/anyone-domains`)
-      if (!response.ok) {
-        this.logger.error(`Anyone API error, status: ${response.status}`)
-        return
-      }
-      const domains = await response.json()
-
-      // Extract the "name" property from each domain object
-      const domainNames = domains
-        .map((domain: any) => domain.name)
-        .filter(Boolean)
-
-      // Update domains cache
-      this.domainsCache = domainNames
-      this.logger.debug(`Cached ${domainNames.length} domains`)
-
-      if (domainNames.length === 0) {
-        this.logger.warn('No anyone domains found')
-        this.mappingsCache = {}
-        this.hostsListCache = ''
-        return
-      }
+      this.logger.debug('Loading hidden service records from database')
+      const rows = await this.hsRecords.find({
+        where: { name: Not(IsNull()), value: Not(IsNull()) },
+        select: ['name', 'value'],
+      })
 
       this.logger.debug(
-        `Resolving hidden service addresses for `
-          + `${domainNames.length} anyone domains`
+        `Loaded ${rows.length} hidden service records from database`,
       )
 
-      // Resolve hidden service addresses for all domains
-      const results = await this.tryResolveAll(domainNames)
-      const successfulResults = results.filter(res => res.result === 'success')
+      const nextMappings: { [key: string]: DomainResolutionResult } = {}
+      let successfulCount = 0
 
-      // Update mappings cache
-      for (const res of results) {
-        this.mappingsCache[res.domain] = res
+      for (const row of rows) {
+        // `name` / `value` are non-null by the WHERE clause above.
+        const domain = row.name!
+        const hsAddress = row.value!
+        const resolved = this.validateRecord(domain, hsAddress)
+        const result = hsUtils.mapDomainResolutionToResult(domain, resolved)
+        nextMappings[domain] = result
+        if (result.result === 'success') {
+          successfulCount += 1
+        }
       }
-      this.hostsListCache = successfulResults
-        .map(mapping => `${mapping.domain} ${mapping.hiddenServiceAddress}`)
+
+      this.mappingsCache = nextMappings
+      this.hostsListCache = Object.values(nextMappings)
+        .filter((res) => res.result === 'success')
+        .map((m) => `${m.domain} ${m.hiddenServiceAddress}`)
         .join('\n')
         .trim()
 
       this.logger.log(
-        `Successfully refreshed cache for [${results.length}] domains with ` +
-          `[${successfulResults.length}] hidden service addresses`
+        `Successfully refreshed cache for [${rows.length}] records with ` +
+          `[${successfulCount}] valid hidden service addresses`,
       )
     } catch (error: any) {
-      this.logger.error('Error refreshing cache:', error)
+      this.logger.error('Error refreshing cache:', error?.stack ?? error)
     } finally {
       this.applyDefaultMappings()
     }
+  }
+
+  private validateRecord(
+    domain: string,
+    hsAddress: string,
+  ): string | DomainResolutionError {
+    const tld = domain.split('.').pop() || ''
+    if (!this.SUPPORTED_TLDS.includes(tld)) {
+      const error = new UnsupportedUnsTldError(tld, domain)
+      this.logger.warn(error.message)
+      return error
+    }
+
+    const hsTld = hsAddress.split('.').pop() || ''
+    if (!this.SUPPORTED_TLDS.includes(hsTld)) {
+      const error = new UnsupportedHiddenServiceTldError(
+        hsTld,
+        hsAddress,
+        domain,
+      )
+      this.logger.warn(error.message)
+      return error
+    }
+
+    if (hsUtils.isValidHiddenServiceAddress(hsAddress) === false) {
+      const error = new HiddenServiceAddressInvalidError(hsAddress, domain)
+      this.logger.warn(error.message)
+      return error
+    }
+
+    return hsAddress
   }
 
   private applyDefaultMappings() {
@@ -204,113 +182,24 @@ export class UnsService implements OnApplicationBootstrap {
       return
     }
 
-    for (const [domain, hiddenServiceAddress] of Object.entries(this.defaultMappings)) {
+    for (const [domain, hiddenServiceAddress] of Object.entries(
+      this.defaultMappings,
+    )) {
       this.mappingsCache[domain] = {
         result: 'success',
         domain,
-        hiddenServiceAddress
+        hiddenServiceAddress,
       }
     }
 
     // Regenerate hostsListCache from all successful mappings
     this.hostsListCache = Object.values(this.mappingsCache)
-      .filter(res => res.result === 'success')
-      .map(mapping => `${mapping.domain} ${mapping.hiddenServiceAddress}`)
+      .filter((res) => res.result === 'success')
+      .map((mapping) => `${mapping.domain} ${mapping.hiddenServiceAddress}`)
       .join('\n')
       .trim()
 
-    this.logger.log(
-      `Applied ${defaultDomains.length} default mappings`
-    )
-  }
-
-  async resolveDomainToHiddenServiceAddress(
-    domain: string
-  ): Promise<string | DomainResolutionError> {
-    const tld = domain.split('.').pop() || ''
-    if (!this.SUPPORTED_TLDS.includes(tld)) {
-      const error = new UnsupportedUnsTldError(tld, domain)
-      this.logger.warn(error.message)
-      return error
-    }
-
-    try {
-      const tokenId = BigInt(ethers.namehash(domain))
-      const [ hsAddress ] = await this.unsProxyReaderContract.getMany(
-        this.UNS_STORAGE_KEYS,
-        tokenId
-      )
-
-      if (hsAddress.trim() === '') {
-        const error = new HiddenServiceRecordNotFoundError(domain)
-        this.logger.debug(error.message)
-        return error
-      }
-
-      const hsTld = hsAddress.split('.').pop() || ''
-      if (!this.SUPPORTED_TLDS.includes(hsTld)) {
-        const error = new UnsupportedHiddenServiceTldError(
-          hsTld,
-          hsAddress,
-          domain
-        )
-        this.logger.warn(error.message)
-        return error
-      }
-
-      if (hsUtils.isValidHiddenServiceAddress(hsAddress) === false) {
-        const error = new HiddenServiceAddressInvalidError(hsAddress, domain)
-        this.logger.warn(error.message)
-        return error
-      }
-
-      return hsAddress
-    } catch (error: any) {
-      const errorMessage =
-        `Error fetching records from UNS Registry for domain ${domain}`
-      this.logger.error(errorMessage, error.stack)
-      return new DomainResolutionError(errorMessage)
-    }
-  }
-
-  async tryResolveAll(
-    domains: string[],
-    batchSize: number = 100,
-    delayMs: number = 1000
-  ): Promise<DomainResolutionResult[]> {
-    const results: DomainResolutionResult[] = []
-
-    for (let i = 0; i < domains.length; i += batchSize) {
-      const batch = domains.slice(i, i + batchSize)
-
-      const batchResults = await Promise.all(
-        batch.map<Promise<DomainResolutionResult>>(async (domain) => {
-          const resolved = await this.resolveDomainToHiddenServiceAddress(domain)
-          return hsUtils.mapDomainResolutionToResult(domain, resolved)
-        })
-      )
-
-      results.push(...batchResults)
-
-      // Add delay between batches (except for the last batch)
-      if (i + batchSize < domains.length) {
-        await new Promise(resolve => setTimeout(resolve, delayMs))
-      }
-    }
-
-    return results
-  }
-
-  async getAnyoneDomainsList(): Promise<string[]> {
-    // Return cached data if available
-    if (this.domainsCache) {
-      this.logger.debug('Returning cached anyone domains list')
-      return this.domainsCache
-    }
-
-    // If no cache is available, return empty array and let the cron job populate it
-    this.logger.warn('No cached domains available yet, returning empty array')
-    return []
+    this.logger.log(`Applied ${defaultDomains.length} default mappings`)
   }
 
   async getHostsList(): Promise<string> {
@@ -318,6 +207,19 @@ export class UnsService implements OnApplicationBootstrap {
   }
 
   async getDomain(domain: string): Promise<DomainResolutionResult | null> {
-    return this.mappingsCache[domain] || this.defaultMappings[domain] || null
+    if (this.mappingsCache[domain]) {
+      return this.mappingsCache[domain]
+    }
+
+    const defaultHs = this.defaultMappings[domain]
+    if (defaultHs) {
+      return {
+        result: 'success',
+        domain,
+        hiddenServiceAddress: defaultHs,
+      }
+    }
+
+    return null
   }
 }

@@ -57,9 +57,7 @@ jobs:
           unzip nomad.zip
 
           if grep -q "stage" deploy-vars.json; then
-            sed -i "s/\[\[ .commit_sha \]\]/${GITHUB_SHA}/g" operations/anyone-dns-stage.hcl
-            ./nomad job run operations/anyone-dns-stage.hcl
+            ./nomad job run -var="commit_sha=${GITHUB_SHA}" operations/anyone-dns-stage.hcl
           else
-            sed -i "s/\[\[ .commit_sha \]\]/${GITHUB_SHA}/g" operations/anyone-dns-live.hcl
-            ./nomad job run operations/anyone-dns-live.hcl
+            ./nomad job run -var="commit_sha=${GITHUB_SHA}" operations/anyone-dns-live.hcl
           fi

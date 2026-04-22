@@ -1,467 +1,238 @@
 import { ConsoleLogger } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { ScheduleModule } from '@nestjs/schedule'
+import { getRepositoryToken } from '@nestjs/typeorm'
 import { Test, TestingModule } from '@nestjs/testing'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
+import { HiddenServiceRecordEntity } from '../db/entities/hidden-service-record.entity'
 import { UnsService } from './uns.service'
-import {
-  HiddenServiceRecordNotFoundError
-} from './errors/hidden-service-record-not-found.error'
-import { DomainResolutionError } from './errors/domain-resolution.error'
 
-describe('UnsService', () => {
-  let unsService: UnsService
+type Row = Partial<HiddenServiceRecordEntity>
 
-  beforeEach(async () => {
-    const app: TestingModule = await Test.createTestingModule(
+const VALID_HS_1 =
+  'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone'
+const VALID_HS_2 =
+  'kjlkfrfxquevo64qv4gssl3t52tiuay2muj7u4rox4llxboj4c4ypcid.anyone'
+const VALID_HS_3 =
+  'jntoblprbfgcpldwuzobmzsdjs6mtwtr3dtn3mtgdjnk6j7x2frcabad.anyone'
+
+function buildRepoMock(rows: Row[] = []) {
+  return {
+    find: jest.fn().mockResolvedValue(rows),
+  }
+}
+
+async function buildService(repoMock: {
+  find: jest.Mock
+}): Promise<UnsService> {
+  const app: TestingModule = await Test.createTestingModule({
+    imports: [
+      ConfigModule.forRoot({ isGlobal: true }),
+      ScheduleModule.forRoot(),
+    ],
+    controllers: [],
+    providers: [
+      UnsService,
       {
-        imports: [
-          ConfigModule.forRoot({ isGlobal: true }),
-          ScheduleModule.forRoot()
-        ],
-        controllers: [],
-        providers: [ UnsService ]
-      }
-    )
-    .setLogger(
-      new ConsoleLogger({
-        logLevels: [
-          // 'error',
-          // 'warn',
-          // 'log',
-          // 'debug',
-          // 'verbose'
-        ]
-      })
-    )
+        provide: getRepositoryToken(HiddenServiceRecordEntity),
+        useValue: repoMock,
+      },
+    ],
+  })
+    .setLogger(new ConsoleLogger({ logLevels: [] }))
     .compile()
 
-    unsService = app.get<UnsService>(UnsService)
+  return app.get<UnsService>(UnsService)
+}
+
+describe('UnsService', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+    delete process.env.DEFAULT_MAPPINGS_PATH
   })
 
-  describe('resolving .anyone domains', () => {
-    let mockContract: any
+  describe('refreshCache', () => {
+    it('loads records and populates caches with valid entries', async () => {
+      const repoMock = buildRepoMock([
+        { name: 'dns-live-1.anyone.anyone', value: VALID_HS_1 },
+        { name: 'dns-live-2.anyone.anyone', value: VALID_HS_2 },
+      ])
+      const svc = await buildService(repoMock)
 
-    beforeEach(() => {
-      // Mock the UNS contract
-      mockContract = {
-        getMany: jest.fn()
-      }
-      
-      // Replace the contract instance with our mock
-      ;(unsService as any).unsProxyReaderContract = mockContract
-    })
+      await svc.refreshCache()
 
-    afterEach(() => {
-      jest.restoreAllMocks()
-    })
+      expect(repoMock.find).toHaveBeenCalledTimes(1)
+      const hosts = await svc.getHostsList()
+      expect(hosts).toContain(`dns-live-1.anyone.anyone ${VALID_HS_1}`)
+      expect(hosts).toContain(`dns-live-2.anyone.anyone ${VALID_HS_2}`)
 
-    it('resolves anyone domain to hidden service address', async () => {
-      const domain = 'test.anyone'
-      const expectedHiddenServiceAddress = '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone'
-
-      // Mock the contract response
-      mockContract.getMany.mockResolvedValue([expectedHiddenServiceAddress])
-
-      const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
-
-      expect(mockContract.getMany).toHaveBeenCalledTimes(1)
-      expect(result).toEqual(expectedHiddenServiceAddress)
-    })
-
-    it('resolves to null if domain has no hidden service record', async () => {
-      const domain = 'nonexistent.anyone'
-
-      // Mock contract to respond with empty string
-      mockContract.getMany.mockResolvedValue([''])
-
-      const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
-
-      expect(result).toBeInstanceOf(HiddenServiceRecordNotFoundError)
-    })
-
-    it('resolves to null if contract throws other errors', async () => {
-      const domain = 'error.anyone'
-
-      // Mock contract to throw a different error
-      mockContract.getMany.mockRejectedValue(new Error('Network error'))
-
-      const result = await unsService.resolveDomainToHiddenServiceAddress(domain)
-
-      expect(result).toBeInstanceOf(DomainResolutionError)
-    })
-
-    it('resolves multiple domains in bulk', async () => {
-      const domains = ['test1.anyone', 'test2.anyone', 'test3.anyone']
-
-      // Mock individual resolution calls
-      const noRecordError = new HiddenServiceRecordNotFoundError(domains[2])
-      const mockResults = [
-        'abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
-        '987fed654cba32109876543210987654321098765432109876543210.anyone',
-        noRecordError
-      ]
-
-      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValueOnce(mockResults[0])
-        .mockResolvedValueOnce(mockResults[1])
-        .mockResolvedValueOnce(mockResults[2])
-
-      const results = await unsService.tryResolveAll(domains)
-
-      expect(results).toHaveLength(3)
-      expect(results[0]).toEqual({
-        domain: domains[0],
-        hiddenServiceAddress: mockResults[0],
-        result: 'success'
-      })
-      expect(results[1]).toEqual({
-        domain: domains[1],
-        hiddenServiceAddress: mockResults[1],
-        result: 'success'
-      })
-      expect(results[2]).toEqual({
-        domain: domains[2],
-        error: noRecordError,
-        result: 'error'
+      const domain = await svc.getDomain('dns-live-1.anyone.anyone')
+      expect(domain).toEqual({
+        result: 'success',
+        domain: 'dns-live-1.anyone.anyone',
+        hiddenServiceAddress: VALID_HS_1,
       })
     })
 
-    it('handles batch processing with custom parameters', async () => {
-      const domains = ['batch1.anyone', 'batch2.anyone']
-      const customBatchSize = 1
-      const customDelay = 100
+    it('filters out null name / value at query level', async () => {
+      // The service is expected to rely on the SQL WHERE to exclude nulls;
+      // we assert the query is shaped that way and simply return non-null rows.
+      const repoMock = buildRepoMock([
+        { name: 'dns-live-3.anyone.anyone', value: VALID_HS_3 },
+      ])
+      const svc = await buildService(repoMock)
 
-      const mockResults = [
-        'test1.anyone abc123def456ghi789jkl012mno345pqr678stu901vwx234yz567890.anyone',
-        'test2.anyone 987fed654cba32109876543210987654321098765432109876543210.anyone'
-      ]
+      await svc.refreshCache()
 
-      // Mock resolution results
-      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValueOnce(mockResults[0])
-        .mockResolvedValueOnce(mockResults[1])
-      // Mock setTimeout to verify delay is called
-      const mockSetTimeout = jest.spyOn(global, 'setTimeout').mockImplementation((fn, delay) => {
-        expect(delay).toBe(customDelay)
-        ;(fn as Function)()
-        return {} as any
-      })
+      const callArg = repoMock.find.mock.calls[0][0]
+      expect(callArg.where.name).toBeDefined()
+      expect(callArg.where.value).toBeDefined()
 
-      await unsService.tryResolveAll(domains, customBatchSize, customDelay)
-
-      expect(mockSetTimeout).toHaveBeenCalledTimes(1) // Called once for delay between batches
-      expect(unsService.resolveDomainToHiddenServiceAddress).toHaveBeenCalledTimes(2)
-    })
-  })
-
-  describe('caching .anyone domain list', () => {
-    beforeEach(() => {
-      // Mock fetch globally
-      global.fetch = jest.fn()
+      const hosts = await svc.getHostsList()
+      expect(hosts).toBe(`dns-live-3.anyone.anyone ${VALID_HS_3}`)
     })
 
-    afterEach(() => {
-      jest.restoreAllMocks()
+    it('handles empty result set', async () => {
+      const repoMock = buildRepoMock([])
+      const svc = await buildService(repoMock)
+
+      await svc.refreshCache()
+
+      expect(await svc.getHostsList()).toBe('')
+      expect(await svc.getDomain('anything.anyone')).toBeNull()
     })
 
-    it('returns empty array when no cache is available', async () => {
-      const result = await unsService.getAnyoneDomainsList()
-      expect(result).toEqual([])
-    })
-
-    it('returns cached domain list when cache is populated', async () => {
-      const mockDomains = [
-        { name: 'example.anyone' },
-        { name: 'test.anyone' },
-        { name: 'demo.anyone' }
-      ]
-
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
+    it('handles DB errors gracefully without throwing', async () => {
+      const repoMock = {
+        find: jest.fn().mockRejectedValue(new Error('DB down')),
       }
+      const svc = await buildService(repoMock)
 
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      // Manually populate cache via refreshCache
-      await unsService.refreshCache()
-
-      const result = await unsService.getAnyoneDomainsList()
-      expect(result).toEqual(['example.anyone', 'test.anyone', 'demo.anyone'])
+      await expect(svc.refreshCache()).resolves.not.toThrow()
+      expect(await svc.getHostsList()).toBe('')
     })
 
-    it('maintains cached data across multiple calls', async () => {
-      const mockDomains = [
-        { name: 'cached.anyone' },
-        { name: 'test.anyone' }
-      ]
+    it('marks unsupported UNS TLDs as error results', async () => {
+      const repoMock = buildRepoMock([{ name: 'bad.com', value: VALID_HS_1 }])
+      const svc = await buildService(repoMock)
 
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
-      }
+      await svc.refreshCache()
 
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      // Populate cache
-      await unsService.refreshCache()
-      expect(global.fetch).toHaveBeenCalledTimes(1)
-
-      // Multiple calls should return same cached data without additional API calls
-      const result1 = await unsService.getAnyoneDomainsList()
-      const result2 = await unsService.getAnyoneDomainsList()
-      const result3 = await unsService.getAnyoneDomainsList()
-
-      expect(global.fetch).toHaveBeenCalledTimes(1) // Still only 1 call
-      expect(result1).toEqual(mockDomains.map(d => d.name))
-      expect(result2).toEqual(mockDomains.map(d => d.name))
-      expect(result3).toEqual(mockDomains.map(d => d.name))
-    })
-  })
-
-  describe('cache refresh functionality', () => {
-    beforeEach(() => {
-      // Mock fetch globally
-      global.fetch = jest.fn()
+      const result = await svc.getDomain('bad.com')
+      expect(result?.result).toBe('error')
+      const hosts = await svc.getHostsList()
+      expect(hosts).toBe('')
     })
 
-    afterEach(() => {
-      jest.restoreAllMocks()
+    it('marks invalid hidden service addresses as error results', async () => {
+      const repoMock = buildRepoMock([
+        {
+          name: 'invalid.anyone',
+          // valid base32 length + tld but bad checksum
+          value:
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.anyone',
+        },
+      ])
+      const svc = await buildService(repoMock)
+
+      await svc.refreshCache()
+
+      const result = await svc.getDomain('invalid.anyone')
+      expect(result?.result).toBe('error')
     })
 
-    it('refreshes cache and fetches domains from API', async () => {
-      const mockDomains = [
-        { name: 'example.anyone' },
-        { name: 'test.anyone' },
-        { name: 'demo.anyone' }
-      ]
+    it('marks unsupported hidden-service TLDs as error results', async () => {
+      const repoMock = buildRepoMock([
+        {
+          name: 'mismatch.anyone',
+          value:
+            'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.onion',
+        },
+      ])
+      const svc = await buildService(repoMock)
 
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
-      }
+      await svc.refreshCache()
 
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      // Mock domain resolution
-      jest.spyOn(unsService, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValue('test.anyone 6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone')
-
-      await unsService.refreshCache()
-
-      expect(global.fetch).toHaveBeenCalledTimes(1)
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/anyone-domains')
-      )
-
-      // Verify cache is populated
-      const domains = await unsService.getAnyoneDomainsList()
-      expect(domains).toEqual(['example.anyone', 'test.anyone', 'demo.anyone'])
-    })
-
-    it('handles HTTP errors during cache refresh', async () => {
-      const mockResponse = {
-        ok: false,
-        status: 500
-      }
-
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      // Should not throw, but log error and keep existing cache
-      await expect(unsService.refreshCache()).resolves.not.toThrow()
-      
-      expect(global.fetch).toHaveBeenCalledTimes(1)
-    })
-
-    it('handles network errors during cache refresh', async () => {
-      ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'))
-
-      // Should not throw, but log error and keep existing cache
-      await expect(unsService.refreshCache()).resolves.not.toThrow()
-      
-      expect(global.fetch).toHaveBeenCalledTimes(1)
-    })
-
-    it('handles empty domain list from API', async () => {
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue([])
-      }
-
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
-
-      await unsService.refreshCache()
-
-      expect(global.fetch).toHaveBeenCalledTimes(1)
-      
-      // Should cache empty array
-      const domains = await unsService.getAnyoneDomainsList()
-      expect(domains).toEqual([])
-      
-      const hosts = await unsService.getHostsList()
-      expect(hosts).toEqual('')
+      const result = await svc.getDomain('mismatch.anyone')
+      expect(result?.result).toBe('error')
     })
   })
 
   describe('default mappings', () => {
     const defaultMappingsHosts = [
-      'dns-live-1.anyone.anyone gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone',
-      'dns-live-2.anyone.anyone kjlkfrfxquevo64qv4gssl3t52tiuay2muj7u4rox4llxboj4c4ypcid.anyone'
+      `dns-live-1.anyone.anyone ${VALID_HS_1}`,
+      `dns-live-2.anyone.anyone ${VALID_HS_2}`,
     ].join('\n')
-
-    let unsServiceWithDefaults: UnsService
     let tmpFile: string
 
-    beforeEach(async () => {
+    beforeEach(() => {
       tmpFile = path.join(os.tmpdir(), `default-mappings-${Date.now()}`)
       fs.writeFileSync(tmpFile, defaultMappingsHosts)
       process.env.DEFAULT_MAPPINGS_PATH = tmpFile
-
-      const app: TestingModule = await Test.createTestingModule(
-        {
-          imports: [
-            ConfigModule.forRoot({ isGlobal: true }),
-            ScheduleModule.forRoot()
-          ],
-          controllers: [],
-          providers: [ UnsService ]
-        }
-      )
-      .setLogger(
-        new ConsoleLogger({
-          logLevels: []
-        })
-      )
-      .compile()
-
-      unsServiceWithDefaults = app.get<UnsService>(UnsService)
-
-      global.fetch = jest.fn()
     })
 
     afterEach(() => {
-      delete process.env.DEFAULT_MAPPINGS
-      jest.restoreAllMocks()
+      try {
+        fs.unlinkSync(tmpFile)
+      } catch {}
     })
 
-    it('includes default mappings in hosts list after refreshCache with empty API', async () => {
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue([])
-      }
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+    it('merges defaults on top of DB results', async () => {
+      const repoMock = buildRepoMock([
+        { name: 'extra.anyone', value: VALID_HS_3 },
+      ])
+      const svc = await buildService(repoMock)
 
-      await unsServiceWithDefaults.refreshCache()
+      await svc.refreshCache()
 
-      const hosts = await unsServiceWithDefaults.getHostsList()
-      expect(hosts).toContain('dns-live-1.anyone.anyone gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone')
-      expect(hosts).toContain('dns-live-2.anyone.anyone kjlkfrfxquevo64qv4gssl3t52tiuay2muj7u4rox4llxboj4c4ypcid.anyone')
+      const hosts = await svc.getHostsList()
+      expect(hosts).toContain(`dns-live-1.anyone.anyone ${VALID_HS_1}`)
+      expect(hosts).toContain(`dns-live-2.anyone.anyone ${VALID_HS_2}`)
+      expect(hosts).toContain(`extra.anyone ${VALID_HS_3}`)
     })
 
-    it('default mappings override conflicting API results', async () => {
-      const mockDomains = [{ name: 'dns-live-1.anyone.anyone' }]
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue(mockDomains)
-      }
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+    it('defaults override conflicting DB entries', async () => {
+      const repoMock = buildRepoMock([
+        { name: 'dns-live-1.anyone.anyone', value: VALID_HS_3 },
+      ])
+      const svc = await buildService(repoMock)
 
-      // API resolves to a different address
-      jest.spyOn(unsServiceWithDefaults, 'resolveDomainToHiddenServiceAddress')
-        .mockResolvedValue('different1234567890abcdef1234567890abcdef1234567890abcdefgh.anyone')
+      await svc.refreshCache()
 
-      await unsServiceWithDefaults.refreshCache()
-
-      const result = await unsServiceWithDefaults.getDomain('dns-live-1.anyone.anyone')
+      const result = await svc.getDomain('dns-live-1.anyone.anyone')
       expect(result).toEqual({
         result: 'success',
         domain: 'dns-live-1.anyone.anyone',
-        hiddenServiceAddress: 'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone'
+        hiddenServiceAddress: VALID_HS_1,
       })
     })
 
-    it('default mappings are available via getDomain', async () => {
-      const mockResponse = {
-        ok: true,
-        json: jest.fn().mockResolvedValue([])
+    it('defaults survive DB errors', async () => {
+      const repoMock = {
+        find: jest.fn().mockRejectedValue(new Error('DB down')),
       }
-      ;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
+      const svc = await buildService(repoMock)
 
-      await unsServiceWithDefaults.refreshCache()
+      await svc.refreshCache()
 
-      const result = await unsServiceWithDefaults.getDomain('dns-live-1.anyone.anyone')
-      expect(result).toEqual({
-        result: 'success',
-        domain: 'dns-live-1.anyone.anyone',
-        hiddenServiceAddress: 'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone'
-      })
-    })
-
-    it('default mappings survive API errors', async () => {
-      ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'))
-
-      await unsServiceWithDefaults.refreshCache()
-
-      const hosts = await unsServiceWithDefaults.getHostsList()
-      expect(hosts).toContain('dns-live-1.anyone.anyone gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone')
+      const hosts = await svc.getHostsList()
+      expect(hosts).toContain(`dns-live-1.anyone.anyone ${VALID_HS_1}`)
     })
   })
 
   describe('default mappings edge cases', () => {
-    afterEach(() => {
-      delete process.env.DEFAULT_MAPPINGS_PATH
-      jest.restoreAllMocks()
-    })
-
     it('starts without error when DEFAULT_MAPPINGS_PATH is not set', async () => {
       delete process.env.DEFAULT_MAPPINGS_PATH
-
-      const app: TestingModule = await Test.createTestingModule(
-        {
-          imports: [
-            ConfigModule.forRoot({ isGlobal: true }),
-            ScheduleModule.forRoot()
-          ],
-          controllers: [],
-          providers: [ UnsService ]
-        }
-      )
-      .setLogger(
-        new ConsoleLogger({
-          logLevels: []
-        })
-      )
-      .compile()
-
-      const svc = app.get<UnsService>(UnsService)
+      const svc = await buildService(buildRepoMock())
       expect(svc).toBeDefined()
     })
 
     it('starts without error when DEFAULT_MAPPINGS_PATH points to missing file', async () => {
       process.env.DEFAULT_MAPPINGS_PATH = '/nonexistent/path/default-mappings'
-
-      const app: TestingModule = await Test.createTestingModule(
-        {
-          imports: [
-            ConfigModule.forRoot({ isGlobal: true }),
-            ScheduleModule.forRoot()
-          ],
-          controllers: [],
-          providers: [ UnsService ]
-        }
-      )
-      .setLogger(
-        new ConsoleLogger({
-          logLevels: []
-        })
-      )
-      .compile()
-
-      const svc = app.get<UnsService>(UnsService)
+      const svc = await buildService(buildRepoMock())
       expect(svc).toBeDefined()
     })
   })

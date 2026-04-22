@@ -1,10 +1,12 @@
 import { ConsoleLogger } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { ScheduleModule } from '@nestjs/schedule'
+import { getRepositoryToken } from '@nestjs/typeorm'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AppController } from './app.controller'
 import { AppService } from './app.service'
+import { HiddenServiceRecordEntity } from './db/entities/hidden-service-record.entity'
 import { UnsService } from './uns/uns.service'
 import { DomainResolutionResult } from './uns/schema/domain-resolution-result'
 import { DomainResolutionError } from './uns/errors/domain-resolution.error'
@@ -16,23 +18,30 @@ describe('AppController', () => {
     const app: TestingModule = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true }),
-        ScheduleModule.forRoot()
+        ScheduleModule.forRoot(),
       ],
-      controllers: [ AppController ],
-      providers: [ AppService, UnsService ],
+      controllers: [AppController],
+      providers: [
+        AppService,
+        UnsService,
+        {
+          provide: getRepositoryToken(HiddenServiceRecordEntity),
+          useValue: { find: async () => [] },
+        },
+      ],
     })
-    .setLogger(
-      new ConsoleLogger({
-        logLevels: [
-          // 'error',
-          // 'warn',
-          // 'log',
-          // 'debug',
-          // 'verbose'
-        ]
-      })
-    )
-    .compile()
+      .setLogger(
+        new ConsoleLogger({
+          logLevels: [
+            // 'error',
+            // 'warn',
+            // 'log',
+            // 'debug',
+            // 'verbose'
+          ],
+        }),
+      )
+      .compile()
 
     appController = app.get<AppController>(AppController)
   })
@@ -45,17 +54,30 @@ describe('AppController', () => {
       const publicKey = publicKeyBase64
         ? Buffer.from(publicKeyBase64, 'base64').toString('hex').toUpperCase()
         : 'unknown'
-      expect(appController.getHealthcheck())
-        .toBe(`Anyone DNS Service version ${version}\nHostname: ${hostname}\nPublic Key: ${publicKey}`)
+      expect(appController.getHealthcheck()).toBe(
+        `Anyone DNS Service version ${version}\nHostname: ${hostname}\nPublic Key: ${publicKey}`,
+      )
     })
   })
 
   describe('anyone-domains', () => {
     it('should fetch anyone domains mappings', async () => {
       const mockDomainMappings = [
-        { domain: 'example.anyone', hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone' },
-        { domain: 'test.anyone', hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone' },
-        { domain: 'demo.anyone', hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone' }
+        {
+          domain: 'example.anyone',
+          hiddenServiceAddress:
+            '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone',
+        },
+        {
+          domain: 'test.anyone',
+          hiddenServiceAddress:
+            '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone',
+        },
+        {
+          domain: 'demo.anyone',
+          hiddenServiceAddress:
+            '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone',
+        },
       ]
       let expectedOutput = ''
       for (const mapping of mockDomainMappings) {
@@ -76,15 +98,22 @@ describe('AppController', () => {
       const mockResult: DomainResolutionResult = {
         result: 'success',
         domain: 'example.anyone',
-        hiddenServiceAddress: '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone'
+        hiddenServiceAddress:
+          '6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone',
       }
-      
-      jest.spyOn(appController['unsService'], 'getDomain').mockResolvedValue(mockResult)
-      
+
+      jest
+        .spyOn(appController['unsService'], 'getDomain')
+        .mockResolvedValue(mockResult)
+
       const result = await appController.getAnyoneDomain(mockDomainName)
 
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
-      expect(result).toBe('example.anyone 6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone')
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(
+        `${mockDomainName}.anyone`,
+      )
+      expect(result).toBe(
+        'example.anyone 6zctvi63m7xxbd34hxn2uvnaw5ao7sec4l3k4bflzeqtve5jleh6ddyd.anyone',
+      )
     })
 
     it('should return error message for failed domain resolution', async () => {
@@ -93,33 +122,49 @@ describe('AppController', () => {
       const mockResult: DomainResolutionResult = {
         result: 'error',
         domain: 'invalid.anyone',
-        error: mockError
+        error: mockError,
       }
-      
-      jest.spyOn(appController['unsService'], 'getDomain').mockResolvedValue(mockResult)
-      
+
+      jest
+        .spyOn(appController['unsService'], 'getDomain')
+        .mockResolvedValue(mockResult)
+
       const result = await appController.getAnyoneDomain(mockDomainName)
-      
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
+
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(
+        `${mockDomainName}.anyone`,
+      )
       expect(result).toBe('Domain resolution failed')
     })
 
     it('should throw NotFoundException when domain is not found (null result)', async () => {
       const mockDomainName = 'notfound'
-      
-      jest.spyOn(appController['unsService'], 'getDomain').mockResolvedValue(null)
-      
-      await expect(appController.getAnyoneDomain(mockDomainName)).rejects.toThrow('Domain not found')
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
+
+      jest
+        .spyOn(appController['unsService'], 'getDomain')
+        .mockResolvedValue(null)
+
+      await expect(
+        appController.getAnyoneDomain(mockDomainName),
+      ).rejects.toThrow('Domain not found')
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(
+        `${mockDomainName}.anyone`,
+      )
     })
 
     it('should throw NotFoundException when domain is not found (undefined result)', async () => {
       const mockDomainName = 'notfound'
-      
-      jest.spyOn(appController['unsService'], 'getDomain').mockResolvedValue(null)
-      
-      await expect(appController.getAnyoneDomain(mockDomainName)).rejects.toThrow('Domain not found')
-      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(`${mockDomainName}.anyone`)
+
+      jest
+        .spyOn(appController['unsService'], 'getDomain')
+        .mockResolvedValue(null)
+
+      await expect(
+        appController.getAnyoneDomain(mockDomainName),
+      ).rejects.toThrow('Domain not found')
+      expect(appController['unsService'].getDomain).toHaveBeenCalledWith(
+        `${mockDomainName}.anyone`,
+      )
     })
 
     afterEach(() => {
