@@ -1,3 +1,8 @@
+variable "commit_sha" {
+  type        = string
+  description = "The git commit SHA to use for the runtime image tag"
+}
+
 job "anyone-dns-stage" {
   datacenters = ["ator-fin"]
   type = "service"
@@ -31,10 +36,10 @@ job "anyone-dns-stage" {
       }
 
       env {
-        VERSION = "[[ .commit_sha ]]"
-        PORT="${NOMAD_PORT_dnsport}"
-        ANYONE_API_BASE_URL="https://api-stage.ec.anyone.tech"
-        DEFAULT_MAPPINGS_PATH="/usr/src/app/default-anyone-hosts"
+        VERSION = var.commit_sha
+        PORT = "${NOMAD_PORT_dnsport}"
+        DEFAULT_MAPPINGS_PATH = "/usr/src/app/default-anyone-hosts"
+        DB_NAME = "uns_indexer"
       }
 
       consul {}
@@ -55,9 +60,21 @@ job "anyone-dns-stage" {
       }
 
       template {
+        data = <<-EOH
+        {{- range service "uns-record-indexer-postgres-stage" }}
+        DB_HOST="{{ .Address }}"
+        DB_PORT="{{ .Port }}"
+        {{- end }}
+        EOH
+        destination = "local/db.env"
+        env         = true
+      }
+
+      template {
         data = <<-EOF
         {{- with secret "kv/stage-services/anyone-dns-stage" }}
-        JSON_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_1 }}"
+        DB_USER="{{ .Data.data.DB_USER }}"
+        DB_PASS="{{ .Data.data.DB_PASS }}"
         HIDDEN_SERVICE_HOSTNAME="{{ .Data.data.ANYONE_DNS_1_HS_HOSTNAME }}"
         HIDDEN_SERVICE_PUBLIC_KEY="{{ .Data.data.ANYONE_DNS_1_HS_ED25519_PUBLIC_KEY_BASE64 }}"
         {{- end }}
