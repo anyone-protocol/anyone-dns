@@ -44,6 +44,8 @@ job "anyone-dns-live" {
         DB_NAME = "uns_indexer"
       }
 
+      consul {}
+
       vault { role = "any1-nomad-workloads-controller" }
 
       template {
@@ -77,6 +79,7 @@ job "anyone-dns-live" {
         DB_PASS="{{ .Data.data.DB_PASS }}"
         HIDDEN_SERVICE_HOSTNAME="{{ .Data.data.ANYONE_DNS_1_HS_HOSTNAME }}"
         HIDDEN_SERVICE_PUBLIC_KEY="{{ .Data.data.ANYONE_DNS_1_HS_ED25519_PUBLIC_KEY_BASE64 }}"
+        HIDDEN_SERVICE_SECRET_KEY="{{ .Data.data.ANYONE_DNS_1_HS_ED25519_SECRET_KEY_BASE64 }}"
         {{- end }}
         EOF
         destination = "secrets/config.env"

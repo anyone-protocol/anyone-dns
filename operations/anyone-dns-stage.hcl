@@ -118,6 +118,8 @@ job "anyone-dns-stage" {
         destination = "local/anonrc"
       }
 
+      consul {}
+
       vault { role = "any1-nomad-workloads-controller" }
 
       template {
