@@ -3,11 +3,19 @@ import { ConfigModule } from '@nestjs/config'
 import { ScheduleModule } from '@nestjs/schedule'
 import { getRepositoryToken } from '@nestjs/typeorm'
 import { Test, TestingModule } from '@nestjs/testing'
+import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { ed25519 } from '@noble/curves/ed25519.js'
 
 import { HiddenServiceRecordEntity } from '../db/entities/hidden-service-record.entity'
+import {
+  _internals as signerInternals,
+  deriveSignerAddress,
+  parseTorSecretKey,
+} from '../util/anyone-hosts-signer'
+import { hsUtils } from '../util/hidden-service-utils'
 import { UnsService } from './uns.service'
 
 type Row = Partial<HiddenServiceRecordEntity>
@@ -30,7 +38,7 @@ async function buildService(repoMock: {
 }): Promise<UnsService> {
   const app: TestingModule = await Test.createTestingModule({
     imports: [
-      ConfigModule.forRoot({ isGlobal: true }),
+      ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
       ScheduleModule.forRoot(),
     ],
     controllers: [],
@@ -52,6 +60,8 @@ describe('UnsService', () => {
   afterEach(() => {
     jest.restoreAllMocks()
     delete process.env.DEFAULT_MAPPINGS_PATH
+    delete process.env.HIDDEN_SERVICE_SECRET_KEY
+    delete process.env.HIDDEN_SERVICE_HOSTNAME
   })
 
   describe('refreshCache', () => {
@@ -234,6 +244,89 @@ describe('UnsService', () => {
       process.env.DEFAULT_MAPPINGS_PATH = '/nonexistent/path/default-mappings'
       const svc = await buildService(buildRepoMock())
       expect(svc).toBeDefined()
+    })
+  })
+
+  describe('signed mode (HIDDEN_SERVICE_SECRET_KEY)', () => {
+    function makeTorSecretKeyBase64(): string {
+      const seed = crypto.randomBytes(32)
+      const h = crypto.createHash('sha512').update(seed).digest()
+      const scalar = Buffer.from(h.subarray(0, 32))
+      scalar[0] &= 0xf8
+      scalar[31] &= 0x7f
+      scalar[31] |= 0x40
+      const prefix = Buffer.from(h.subarray(32, 64))
+      const file = Buffer.concat([
+        signerInternals.TOR_SECRET_KEY_MAGIC,
+        scalar,
+        prefix,
+      ])
+      return file.toString('base64')
+    }
+
+    it('emits signed hosts-list body when secret key is configured', async () => {
+      process.env.HIDDEN_SERVICE_SECRET_KEY = makeTorSecretKeyBase64()
+      const repoMock = buildRepoMock([
+        { name: 'dns-live-1.anyone.anyone', value: VALID_HS_1 },
+        { name: 'dns-live-2.anyone.anyone', value: VALID_HS_2 },
+      ])
+      const svc = await buildService(repoMock)
+
+      await svc.refreshCache()
+      const body = await svc.getHostsList()
+
+      expect(body.startsWith('anyone-hosts-version 1\n')).toBe(true)
+      expect(body).toContain('anyone-hosts-status signed\n')
+      expect(body).toContain(`dns-live-1.anyone.anyone ${VALID_HS_1}`)
+      expect(body).toContain(`dns-live-2.anyone.anyone ${VALID_HS_2}`)
+      expect(body.endsWith('-----END SIGNATURE-----\n')).toBe(true)
+
+      // Extract signer address and verify embedded signature.
+      const sigLine = body
+        .split('\n')
+        .find((l) => l.startsWith('anyone-hosts-signature '))
+      expect(sigLine).toBeDefined()
+      const signerAddress = sigLine!.split(' ')[1]
+
+      const sigIdx = body.indexOf('-----BEGIN SIGNATURE-----')
+      const signedRegion = body.slice(0, sigIdx)
+      const pemBody = body.slice(sigIdx).split('\n').slice(1, -2).join('')
+      const signature = Buffer.from(pemBody, 'base64')
+      const digest = crypto
+        .createHash('sha256')
+        .update(Buffer.from(signedRegion, 'utf8'))
+        .digest()
+      const message = Buffer.concat([
+        signerInternals.SIGNATURE_PREFIX,
+        digest,
+      ])
+      const pub = hsUtils.hiddenServicePublicKeyFromAddress(signerAddress)
+      expect(ed25519.verify(signature, message, pub)).toBe(true)
+    })
+
+    it('throws at bootstrap when HIDDEN_SERVICE_HOSTNAME does not match derived address', async () => {
+      process.env.HIDDEN_SERVICE_SECRET_KEY = makeTorSecretKeyBase64()
+      process.env.HIDDEN_SERVICE_HOSTNAME =
+        'gadmrvl67444hgzrhsnhzknxaimfnzp6az3wq4d2j7hrf7th34elrrad.anyone'
+
+      await expect(buildService(buildRepoMock())).rejects.toThrow(
+        /does not match/,
+      )
+    })
+
+    it('accepts matching HIDDEN_SERVICE_HOSTNAME', async () => {
+      const base64 = makeTorSecretKeyBase64()
+      const derived = deriveSignerAddress(parseTorSecretKey(base64))
+      process.env.HIDDEN_SERVICE_SECRET_KEY = base64
+      process.env.HIDDEN_SERVICE_HOSTNAME = derived
+
+      const svc = await buildService(buildRepoMock())
+      expect(svc).toBeDefined()
+    })
+
+    it('throws at bootstrap on malformed secret key', async () => {
+      process.env.HIDDEN_SERVICE_SECRET_KEY = Buffer.alloc(96).toString('base64')
+      await expect(buildService(buildRepoMock())).rejects.toThrow(/magic/)
     })
   })
 })
