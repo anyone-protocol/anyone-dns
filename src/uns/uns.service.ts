@@ -6,6 +6,12 @@ import * as fs from 'fs'
 import { IsNull, Not, Repository } from 'typeorm'
 
 import { HiddenServiceRecordEntity } from '../db/entities/hidden-service-record.entity'
+import {
+  buildSignedAnyoneHostsDocument,
+  deriveSignerAddress,
+  ExpandedSecretKey,
+  parseTorSecretKey,
+} from '../util/anyone-hosts-signer'
 import { hsUtils } from '../util/hidden-service-utils'
 import { DomainResolutionError } from './errors/domain-resolution.error'
 import { HiddenServiceAddressInvalidError } from './errors/hidden-service-address-invalid.error'
@@ -13,12 +19,16 @@ import { UnsupportedHiddenServiceTldError } from './errors/unsupported-hidden-se
 import { UnsupportedUnsTldError } from './errors/unsupported-uns-tld.error'
 import { DomainResolutionResult } from './schema/domain-resolution-result'
 
+const SIGNED_VALID_FOR_MS = 24 * 60 * 60 * 1000
+
 @Injectable()
 export class UnsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(UnsService.name)
   private readonly SUPPORTED_TLDS = ['anyone']
   private readonly cacheTtlMs: number
   private readonly defaultMappings: Record<string, string>
+  private readonly signingKey?: ExpandedSecretKey
+  private readonly signerAddress?: string
   private mappingsCache: { [key: string]: DomainResolutionResult } = {}
   private hostsListCache: string = ''
 
@@ -26,6 +36,8 @@ export class UnsService implements OnApplicationBootstrap {
     private readonly config: ConfigService<{
       ANYONE_DOMAINS_CACHE_TTL_MS: string
       DEFAULT_MAPPINGS_PATH: string
+      HIDDEN_SERVICE_SECRET_KEY: string
+      HIDDEN_SERVICE_HOSTNAME: string
     }>,
     private readonly schedulerRegistry: SchedulerRegistry,
     @InjectRepository(HiddenServiceRecordEntity)
@@ -73,6 +85,36 @@ export class UnsService implements OnApplicationBootstrap {
             ` ${defaultMappingsPath}: ${e.message}`,
         )
       }
+    }
+
+    const secretKeyBase64 = this.config.get<string>(
+      'HIDDEN_SERVICE_SECRET_KEY',
+      '',
+      { infer: true },
+    )
+    if (secretKeyBase64) {
+      this.signingKey = parseTorSecretKey(secretKeyBase64)
+      this.signerAddress = deriveSignerAddress(this.signingKey)
+      const configuredHostname = this.config.get<string>(
+        'HIDDEN_SERVICE_HOSTNAME',
+        '',
+        { infer: true },
+      )
+      if (configuredHostname && configuredHostname !== this.signerAddress) {
+        throw new Error(
+          `HIDDEN_SERVICE_HOSTNAME (${configuredHostname}) does not match` +
+            ` address derived from HIDDEN_SERVICE_SECRET_KEY` +
+            ` (${this.signerAddress})`,
+        )
+      }
+      this.logger.log(
+        `Signed anyone_hosts responses enabled; signer=${this.signerAddress}`,
+      )
+    } else {
+      this.logger.log(
+        'HIDDEN_SERVICE_SECRET_KEY not set; /tld/anyone will return legacy' +
+          ' unsigned format',
+      )
     }
   }
 
@@ -128,11 +170,7 @@ export class UnsService implements OnApplicationBootstrap {
       }
 
       this.mappingsCache = nextMappings
-      this.hostsListCache = Object.values(nextMappings)
-        .filter((res) => res.result === 'success')
-        .map((m) => `${m.domain} ${m.hiddenServiceAddress}`)
-        .join('\n')
-        .trim()
+      this.rebuildHostsListCache()
 
       this.logger.log(
         `Successfully refreshed cache for [${rows.length}] records with ` +
@@ -192,14 +230,35 @@ export class UnsService implements OnApplicationBootstrap {
       }
     }
 
-    // Regenerate hostsListCache from all successful mappings
-    this.hostsListCache = Object.values(this.mappingsCache)
-      .filter((res) => res.result === 'success')
-      .map((mapping) => `${mapping.domain} ${mapping.hiddenServiceAddress}`)
-      .join('\n')
-      .trim()
+    this.rebuildHostsListCache()
 
     this.logger.log(`Applied ${defaultDomains.length} default mappings`)
+  }
+
+  private rebuildHostsListCache() {
+    const mappings = Object.values(this.mappingsCache)
+      .filter((res) => res.result === 'success')
+      .map((m) => ({
+        domain: m.domain,
+        hsAddress: m.hiddenServiceAddress,
+      }))
+
+    if (this.signingKey && this.signerAddress) {
+      const published = new Date()
+      const validUntil = new Date(published.getTime() + SIGNED_VALID_FOR_MS)
+      this.hostsListCache = buildSignedAnyoneHostsDocument({
+        mappings,
+        signerAddress: this.signerAddress,
+        key: this.signingKey,
+        published,
+        validUntil,
+      })
+    } else {
+      this.hostsListCache = mappings
+        .map((m) => `${m.domain} ${m.hsAddress}`)
+        .join('\n')
+        .trim()
+    }
   }
 
   async getHostsList(): Promise<string> {

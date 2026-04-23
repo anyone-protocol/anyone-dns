@@ -4,6 +4,17 @@ import * as crypto from 'crypto'
 import { DomainResolutionError } from '../uns/errors/domain-resolution.error'
 import { DomainResolutionResult } from '../uns/schema/domain-resolution-result'
 
+const V3_VERSION_BYTE = 0x03
+
+function computeHsChecksum(pubKey: Buffer, tld: string): Buffer {
+  const input = Buffer.concat([
+    Buffer.from(`.${tld} checksum`, 'utf8'),
+    pubKey,
+    Buffer.from([V3_VERSION_BYTE]),
+  ])
+  return crypto.createHash('sha3-256').update(input).digest().subarray(0, 2)
+}
+
 export const hsUtils = {
   isValidHiddenServiceAddress(address: string): boolean {
     if (!address || address.trim() === '') {
@@ -19,26 +30,50 @@ export const hsUtils = {
     }
 
     try {
-      const addressHex = Buffer
-        .from(base32.decode.asBytes(addressHash.toUpperCase()))
-        .toString('hex')
-      const pubkey = addressHex.slice(0, 64)
-      const checksum = addressHex.slice(64, 68)
-      const versionByte = addressHex.slice(68, 70)
-      
-      // First 2 bytes of SHA3(".${tld} checksum" || PUBKEY || VERSION)
-      const expectedChecksumInput = Buffer.concat([
-        Buffer.from(`.${addressTld} checksum`, 'utf8'),
-        Buffer.from(pubkey, 'hex'),
-        Buffer.from(versionByte, 'hex')
-      ])
-      const expectedChecksum = crypto.createHash('sha3-256')
-        .update(expectedChecksumInput)
-        .digest('hex')
-        .slice(0, 4)
+      const decoded = Buffer.from(
+        base32.decode.asBytes(addressHash.toUpperCase()),
+      )
+      if (decoded.length !== 35) {
+        return false
+      }
+      const pubkey = decoded.subarray(0, 32)
+      const checksum = decoded.subarray(32, 34)
+      const versionByte = decoded[34]
 
-      return checksum === expectedChecksum
-    } catch (e: any) { return false }
+      if (versionByte !== V3_VERSION_BYTE) {
+        return false
+      }
+
+      const expectedChecksum = computeHsChecksum(pubkey, addressTld)
+      return checksum.equals(expectedChecksum)
+    } catch (e: any) {
+      return false
+    }
+  },
+
+  hiddenServiceAddressFromPublicKey(
+    pubKey: Buffer,
+    tld: string = 'anyone',
+  ): string {
+    if (pubKey.length !== 32) {
+      throw new Error('Ed25519 public key must be 32 bytes')
+    }
+    const checksum = computeHsChecksum(pubKey, tld)
+    const full = Buffer.concat([
+      pubKey,
+      checksum,
+      Buffer.from([V3_VERSION_BYTE]),
+    ])
+    const label = base32.encode(full).replace(/=+$/, '').toLowerCase()
+    return `${label}.${tld}`
+  },
+
+  hiddenServicePublicKeyFromAddress(address: string): Buffer {
+    const parts = address.split('.')
+    parts.pop()
+    const label = parts.pop() || ''
+    const decoded = Buffer.from(base32.decode.asBytes(label.toUpperCase()))
+    return Buffer.from(decoded.subarray(0, 32))
   },
 
   formatHostsFileEntry(domain: string, hiddenServiceAddress: string) {

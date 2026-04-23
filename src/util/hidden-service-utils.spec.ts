@@ -34,4 +34,25 @@ describe('hsUtils', () => {
       ).toBe(false)
     })
   })
+
+  describe('hiddenServiceAddressFromPublicKey', () => {
+    it('round-trips a known bootstrap address', () => {
+      const pubKey = hsUtils.hiddenServicePublicKeyFromAddress(validAnyoneAddress)
+      expect(pubKey.length).toBe(32)
+      const rebuilt = hsUtils.hiddenServiceAddressFromPublicKey(pubKey, 'anyone')
+      expect(rebuilt).toBe(validAnyoneAddress)
+    })
+
+    it('produces an address that passes isValidHiddenServiceAddress', () => {
+      const pubKey = hsUtils.hiddenServicePublicKeyFromAddress(validAnyoneAddress)
+      const rebuilt = hsUtils.hiddenServiceAddressFromPublicKey(pubKey)
+      expect(hsUtils.isValidHiddenServiceAddress(rebuilt)).toBe(true)
+    })
+
+    it('throws on non-32-byte pubkeys', () => {
+      expect(() =>
+        hsUtils.hiddenServiceAddressFromPublicKey(Buffer.alloc(31))
+      ).toThrow(/32 bytes/)
+    })
+  })
 })

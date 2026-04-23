@@ -13,8 +13,8 @@ All responses are `text/plain`.
 | Method | Path                  | Description |
 |--------|-----------------------|-------------|
 | GET    | `/`                   | Healthcheck — version, HS hostname, HS public key. |
-| GET    | `/tld/anyone`         | Full hosts-file body: one `<domain> <hsaddr>` line per mapping. |
-| GET    | `/tld/anyone/:name`   | Single hosts-file line for `<name>.anyone`, or `404` if unknown. |
+| GET    | `/tld/anyone`         | Hosts-file body. Legacy `<domain> <hsaddr>` per line, or a signed anyone-hosts document when `HIDDEN_SERVICE_SECRET_KEY` is configured. |
+| GET    | `/tld/anyone/:name`   | Single hosts-file line for `<name>.anyone`, or `404` if unknown. Always legacy single-line format. |
 
 ## Configuration
 
@@ -26,6 +26,7 @@ Copy [.env.example](.env.example) to `.env` and adjust.
 | `VERSION`                     | no       | `unknown`     | Surfaced in `/` healthcheck. |
 | `HIDDEN_SERVICE_HOSTNAME`     | no       | `unknown`     | Surfaced in `/` healthcheck. |
 | `HIDDEN_SERVICE_PUBLIC_KEY`   | no       | `unknown`     | Base64; decoded to hex in `/` healthcheck. |
+| `HIDDEN_SERVICE_SECRET_KEY`   | no       | _unset_       | Base64 of the 96-byte Tor `hs_ed25519_secret_key` file. When set, `/tld/anyone` returns a signed document; the derived signer address must match `HIDDEN_SERVICE_HOSTNAME` if that is also set. |
 | `ANYONE_DOMAINS_CACHE_TTL_MS` | no       | `300000`      | In-memory cache refresh interval. |
 | `DEFAULT_MAPPINGS_PATH`       | no       | _unset_       | Path to a `<domain> <hsaddr>` file; overlays on top of DB rows. |
 | `DB_HOST`                     | yes      | `localhost`   | Postgres host. |
