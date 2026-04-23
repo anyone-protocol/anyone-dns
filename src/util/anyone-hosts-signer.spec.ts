@@ -98,7 +98,30 @@ describe('anyone-hosts-signer', () => {
       expect(doc.endsWith('-----END SIGNATURE-----\n')).toBe(true)
     })
 
-    it('mapping digest matches sha256 of sorted-joined mapping lines', () => {
+    it('emits mapping lines sorted lex ascending', () => {
+      const { base64 } = makeTorSecretKeyBase64()
+      const key = parseTorSecretKey(base64)
+      const addr = deriveSignerAddress(key)
+      const doc = buildSignedAnyoneHostsDocument({
+        mappings,
+        signerAddress: addr,
+        key,
+        published: new Date(0),
+        validUntil: new Date(24 * 3600 * 1000),
+      })
+
+      // The mapping block sits between the first blank line after the
+      // header and the blank line before `anyone-hosts-digest`.
+      const match = doc.match(/\n\n([\s\S]*?)\n\nanyone-hosts-digest /)
+      expect(match).not.toBeNull()
+      const emittedLines = match![1].split('\n')
+      const expectedLines = mappings
+        .map((m) => `${m.domain} ${m.hsAddress}`)
+        .sort()
+      expect(emittedLines).toEqual(expectedLines)
+    })
+
+    it('mapping digest is sha256 of the emitted mapping block', () => {
       const { base64 } = makeTorSecretKeyBase64()
       const key = parseTorSecretKey(base64)
       const addr = deriveSignerAddress(key)
@@ -116,13 +139,13 @@ describe('anyone-hosts-signer', () => {
       expect(digestLine).toBeDefined()
       const hex = digestLine!.split(' ')[2]
 
-      const sorted = mappings
-        .map((m) => `${m.domain} ${m.hsAddress}`)
-        .sort()
-        .join('\n')
+      // Because mappings are emitted sorted, the digest can be recomputed
+      // directly over the emitted block without re-sorting.
+      const match = doc.match(/\n\n([\s\S]*?)\n\nanyone-hosts-digest /)
+      const emittedBlock = match![1]
       const expected = crypto
         .createHash('sha256')
-        .update(sorted, 'utf8')
+        .update(emittedBlock, 'utf8')
         .digest('hex')
       expect(hex).toBe(expected)
     })

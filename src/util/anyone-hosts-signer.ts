@@ -129,16 +129,6 @@ function formatTimestamp(d: Date): string {
   )
 }
 
-function computeMappingDigest(
-  mappings: Array<{ domain: string; hsAddress: string }>,
-): string {
-  const lines = mappings
-    .map((m) => `${m.domain} ${m.hsAddress}`)
-    .sort()
-    .join('\n')
-  return crypto.createHash('sha256').update(lines, 'utf8').digest('hex')
-}
-
 function wrapBase64(data: Buffer, width = 64): string {
   const b64 = data.toString('base64')
   const lines: string[] = []
@@ -163,10 +153,18 @@ export function buildSignedAnyoneHostsDocument(
 ): string {
   const { mappings, signerAddress, key, published, validUntil } = input
 
-  const mappingBlock = mappings
+  // Emit mapping lines sorted lex ascending so the block is byte-identical
+  // to the canonical form used for `anyone-hosts-digest` (spec §10). This
+  // lets verifiers recompute the digest directly from the emitted block
+  // without re-sorting.
+  const sortedMappingLines = mappings
     .map((m) => `${m.domain} ${m.hsAddress}`)
-    .join('\n')
-  const digestHex = computeMappingDigest(mappings)
+    .sort()
+  const mappingBlock = sortedMappingLines.join('\n')
+  const digestHex = crypto
+    .createHash('sha256')
+    .update(mappingBlock, 'utf8')
+    .digest('hex')
 
   const signedRegion =
     `anyone-hosts-version 1\n` +
@@ -205,6 +203,5 @@ export function deriveSignerAddress(
 export const _internals = {
   SIGNATURE_PREFIX,
   TOR_SECRET_KEY_MAGIC,
-  computeMappingDigest,
   formatTimestamp,
 }
