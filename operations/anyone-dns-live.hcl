@@ -1,11 +1,12 @@
 variable "commit_sha" {
   type        = string
   description = "The git commit SHA to use for the runtime image tag"
+  default     = "18890c903e1cdc3df2d2a2ac0008a7b14effda72" // v0.1.2
 }
 variable "anyone_client_tag" {
   type        = string
   description = "The anyone client container image tag to deploy for the sbws regional live relay task"
-  default     = "4be828669dd2dacffdae8abe650f56ab0de85643" // v0.4.10.2
+  default     = "631f3c9805513000a13113e8b48b6b4ce262689b" // v0.4.11.0-beta
 }
 
 job "anyone-dns-live" {
@@ -101,7 +102,7 @@ job "anyone-dns-live" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/anyone-protocol/ator-protocol-amd64:${var.anyone_client_tag}"
+        image = "ghcr.io/anyone-protocol/ator-protocol-dev-amd64:${var.anyone_client_tag}"
         volumes = [
           "local/anonrc:/etc/anon/anonrc",
           "secrets/hidden-service:/var/lib/anon/anyone-dns"
